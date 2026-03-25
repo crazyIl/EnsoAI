@@ -25,6 +25,7 @@ interface UseCodeReviewReturn {
 
 export function useCodeReview({ repoPath }: UseCodeReviewOptions): UseCodeReviewReturn {
   const codeReviewSettings = useSettingsStore((s) => s.codeReview);
+  const thirdPartyAiConfig = useSettingsStore((s) => s.thirdPartyAiConfig);
   const review = useCodeReviewContinueStore((s) => s.review);
   const resetReview = useCodeReviewContinueStore((s) => s.resetReview);
 
@@ -35,12 +36,23 @@ export function useCodeReview({ repoPath }: UseCodeReviewOptions): UseCodeReview
       model: codeReviewSettings.model,
       language: codeReviewSettings.language ?? '中文',
       continueConversation: codeReviewSettings.continueConversation ?? true,
+      providerMode: codeReviewSettings.providerMode,
+      apiConfig:
+        codeReviewSettings.providerMode === 'api'
+          ? {
+              ...thirdPartyAiConfig,
+              model: codeReviewSettings.apiModel || thirdPartyAiConfig.model,
+            }
+          : undefined,
     });
   }, [
     repoPath,
     codeReviewSettings.model,
     codeReviewSettings.language,
     codeReviewSettings.continueConversation,
+    codeReviewSettings.providerMode,
+    codeReviewSettings.apiModel,
+    thirdPartyAiConfig,
   ]);
 
   const continueConversation = codeReviewSettings.continueConversation ?? true;

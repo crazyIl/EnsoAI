@@ -22,7 +22,8 @@ export function CommitBox({
   const { t } = useI18n();
   const [message, setMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const { commitMessageGenerator } = useSettingsStore();
+  const commitMessageGenerator = useSettingsStore((s) => s.commitMessageGenerator);
+  const thirdPartyAiConfig = useSettingsStore((s) => s.thirdPartyAiConfig);
 
   const handleCommit = () => {
     const finalMessage = message.trim();
@@ -48,6 +49,14 @@ export function CommitBox({
         maxDiffLines: commitMessageGenerator.maxDiffLines,
         timeout: commitMessageGenerator.timeout,
         model: commitMessageGenerator.model,
+        providerMode: commitMessageGenerator.providerMode,
+        apiConfig:
+          commitMessageGenerator.providerMode === 'api'
+            ? {
+                ...thirdPartyAiConfig,
+                model: commitMessageGenerator.apiModel || thirdPartyAiConfig.model,
+              }
+            : undefined,
       });
 
       if (result.success && result.message) {

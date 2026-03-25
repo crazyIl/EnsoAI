@@ -99,12 +99,23 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.GIT_DIFF_STATS, workdir),
     generateCommitMessage: (
       workdir: string,
-      options: { maxDiffLines: number; timeout: number; model: string }
+      options: {
+        maxDiffLines: number;
+        timeout: number;
+        model: string;
+        providerMode?: import('@shared/types').AiProviderMode;
+        apiConfig?: import('@shared/types').ThirdPartyAiConfig;
+      }
     ): Promise<{ success: boolean; message?: string; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_GENERATE_COMMIT_MSG, workdir, options),
     generateBranchName: (
       workdir: string,
-      options: { prompt: string; model: string }
+      options: {
+        prompt: string;
+        model: string;
+        providerMode?: import('@shared/types').AiProviderMode;
+        apiConfig?: import('@shared/types').ThirdPartyAiConfig;
+      }
     ): Promise<{ success: boolean; branchName?: string; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_GENERATE_BRANCH_NAME, workdir, options),
     startCodeReview: (
@@ -115,6 +126,8 @@ const electronAPI = {
         language?: string;
         continueConversation?: boolean;
         sessionId?: string;
+        providerMode?: import('@shared/types').AiProviderMode;
+        apiConfig?: import('@shared/types').ThirdPartyAiConfig;
       }
     ): Promise<{ success: boolean; error?: string; sessionId?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_CODE_REVIEW_START, workdir, options),
@@ -251,6 +264,51 @@ const electronAPI = {
   // Agent
   agent: {
     list: (): Promise<AgentMetadata[]> => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
+  },
+
+  // AI
+  ai: {
+    completion: (
+      request: import('@shared/types').AiCompletionRequest
+    ): Promise<import('@shared/types').AiCompletionResponse> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_COMPLETION, request),
+    streamCompletion: (
+      streamId: string,
+      config: import('@shared/types').ThirdPartyAiConfig,
+      prompt: string,
+      timeout?: number
+    ): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_STREAM_COMPLETION, streamId, config, prompt, timeout),
+    stopStream: (streamId: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_STREAM_STOP, streamId),
+    onStreamData: (
+      callback: (event: {
+        streamId: string;
+        type: 'data' | 'error' | 'exit';
+        data?: string;
+        exitCode?: number;
+      }) => void
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        event: {
+          streamId: string;
+          type: 'data' | 'error' | 'exit';
+          data?: string;
+          exitCode?: number;
+        }
+      ) => callback(event);
+      ipcRenderer.on(IPC_CHANNELS.AI_STREAM_DATA, handler);
+      return () => ipcRenderer.off(IPC_CHANNELS.AI_STREAM_DATA, handler);
+    },
+    fetchModels: (
+      config: Pick<import('@shared/types').ThirdPartyAiConfig, 'protocol' | 'baseUrl' | 'apiKey'>
+    ): Promise<{ success: boolean; models?: string[]; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_FETCH_MODELS, config),
+    testConnection: (
+      config: import('@shared/types').ThirdPartyAiConfig
+    ): Promise<{ success: boolean; latency?: number; error?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_TEST_CONNECTION, config),
   },
 
   // App

@@ -1,3 +1,4 @@
+import type { AiApiProtocol, AiProviderMode } from '@shared/types';
 import * as React from 'react';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,9 +13,24 @@ import { useI18n } from '@/i18n';
 import { defaultBranchNameGeneratorSettings, useSettingsStore } from '@/stores/settings';
 import { ProviderList } from './claude-provider';
 import { KeybindingInput } from './KeybindingsSettings';
+import { ModelCombobox } from './ModelCombobox';
 import { McpSection } from './mcp';
 import { PluginsSection } from './plugins';
 import { PromptsSection } from './prompts';
+
+const PROVIDER_MODES: { value: AiProviderMode; label: string }[] = [
+  { value: 'cli', label: 'CLI' },
+  { value: 'api', label: 'AI API' },
+];
+
+const API_PROTOCOLS: { value: AiApiProtocol; label: string }[] = [
+  { value: 'openai', label: 'OpenAI Compatible' },
+  { value: 'anthropic', label: 'Anthropic' },
+];
+
+function getApiBaseUrlPlaceholder(protocol: AiApiProtocol): string {
+  return protocol === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1';
+}
 
 export function IntegrationSettings() {
   const { t } = useI18n();
@@ -27,8 +43,16 @@ export function IntegrationSettings() {
     setCodeReview,
     branchNameGenerator,
     setBranchNameGenerator,
+    thirdPartyAiConfig,
+    setThirdPartyAiConfig,
   } = useSettingsStore();
   const [bridgePort, setBridgePort] = React.useState<number | null>(null);
+  const [testingConnection, setTestingConnection] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<{
+    success: boolean;
+    latency?: number;
+    error?: string;
+  } | null>(null);
 
   const debounceOptions = React.useMemo(
     () =>
@@ -357,12 +381,148 @@ export function IntegrationSettings() {
         </div>
       )}
 
+      {/* AI API Section */}
+      <div className="border-t pt-6">
+        <div>
+          <h4 className="text-base font-medium">{t('AI API')}</h4>
+          <p className="text-sm text-muted-foreground">
+            {t('Configure AI API providers for AI features')}
+          </p>
+        </div>
+
+        <div className="mt-4 space-y-4 border-t pt-4">
+          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <span className="text-sm font-medium">{t('Protocol')}</span>
+            <div className="space-y-1.5">
+              <Select
+                value={thirdPartyAiConfig.protocol}
+                onValueChange={(value) =>
+                  setThirdPartyAiConfig({ protocol: value as AiApiProtocol })
+                }
+              >
+                <SelectTrigger className="w-52">
+                  <SelectValue>
+                    {API_PROTOCOLS.find((p) => p.value === thirdPartyAiConfig.protocol)?.label ??
+                      'OpenAI Compatible'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {API_PROTOCOLS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t('HTTP API protocol')}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <span className="text-sm font-medium">{t('Base URL')}</span>
+            <div className="space-y-1.5">
+              <Input
+                value={thirdPartyAiConfig.baseUrl}
+                onChange={(e) => setThirdPartyAiConfig({ baseUrl: e.target.value })}
+                placeholder={getApiBaseUrlPlaceholder(thirdPartyAiConfig.protocol)}
+                className="max-w-xl"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('API endpoint base URL, including /v1 when required')}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <span className="text-sm font-medium">{t('API Key')}</span>
+            <div className="space-y-1.5">
+              <Input
+                type="password"
+                value={thirdPartyAiConfig.apiKey}
+                onChange={(e) => setThirdPartyAiConfig({ apiKey: e.target.value })}
+                placeholder="sk-..."
+                className="max-w-xl"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('Used when any feature runs in API mode')}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <span className="text-sm font-medium">{t('Default Model')}</span>
+            <div className="space-y-1.5">
+              <ModelCombobox
+                value={thirdPartyAiConfig.model}
+                onChange={(value) => setThirdPartyAiConfig({ model: value })}
+                className="w-52"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('Used when a feature does not override the API model')}
+              </p>
+            </div>
+          </div>
+
+          {/* Test Connection */}
+          <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+            <span className="text-sm font-medium">{t('Test Connection')}</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                disabled={
+                  testingConnection ||
+                  !thirdPartyAiConfig.baseUrl ||
+                  !thirdPartyAiConfig.apiKey ||
+                  !thirdPartyAiConfig.model
+                }
+                onClick={async () => {
+                  setTestingConnection(true);
+                  setTestResult(null);
+                  try {
+                    const result = await window.electronAPI.ai.testConnection(thirdPartyAiConfig);
+                    setTestResult(result);
+                  } catch (err) {
+                    setTestResult({
+                      success: false,
+                      error: err instanceof Error ? err.message : 'Unknown error',
+                    });
+                  } finally {
+                    setTestingConnection(false);
+                  }
+                }}
+              >
+                {testingConnection ? t('Testing...') : t('Test Connection')}
+              </button>
+              {testResult && (
+                <span
+                  className={`text-xs ${testResult.success ? 'text-green-600' : 'text-red-500'}`}
+                >
+                  {testResult.success
+                    ? `${t('Connected')} (${testResult.latency}ms)`
+                    : testResult.error}
+                </span>
+              )}
+              {!testResult && !testingConnection && (
+                <span className="text-xs text-muted-foreground">
+                  {!thirdPartyAiConfig.baseUrl ||
+                  !thirdPartyAiConfig.apiKey ||
+                  !thirdPartyAiConfig.model
+                    ? t('Not configured')
+                    : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Commit Message Generator Section */}
       <div className="mt-6 border-t pt-6">
         <div>
           <h3 className="text-lg font-medium">{t('Commit Message Generator')}</h3>
           <p className="text-sm text-muted-foreground">
-            {t('Auto-generate commit messages using Claude')}
+            {t('Auto-generate commit messages using AI')}
           </p>
         </div>
 
@@ -381,6 +541,53 @@ export function IntegrationSettings() {
 
         {commitMessageGenerator.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
+            {/* Provider Mode */}
+            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+              <span className="text-sm font-medium">{t('Mode')}</span>
+              <div className="space-y-1.5">
+                <Select
+                  value={commitMessageGenerator.providerMode}
+                  onValueChange={(v) =>
+                    setCommitMessageGenerator({ providerMode: v as AiProviderMode })
+                  }
+                >
+                  <SelectTrigger className="w-44">
+                    <SelectValue>
+                      {PROVIDER_MODES.find((m) => m.value === commitMessageGenerator.providerMode)
+                        ?.label ?? 'CLI'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {PROVIDER_MODES.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('Choose between local CLI providers and configured HTTP APIs')}
+                </p>
+              </div>
+            </div>
+
+            {commitMessageGenerator.providerMode === 'api' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('API Model')}</span>
+                <div className="space-y-1.5">
+                  <ModelCombobox
+                    value={commitMessageGenerator.apiModel}
+                    onChange={(value) => setCommitMessageGenerator({ apiModel: value })}
+                    showDefault
+                    className="w-52"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('Leave empty to use the global default model')}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Max Diff Lines */}
             <div className="grid grid-cols-[140px_1fr] items-center gap-4">
               <span className="text-sm font-medium">{t('Max Diff Lines')}</span>
@@ -424,38 +631,40 @@ export function IntegrationSettings() {
               </div>
             </div>
 
-            {/* Model */}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-4">
-              <span className="text-sm font-medium">{t('Model')}</span>
-              <div className="space-y-1.5">
-                <Select
-                  value={commitMessageGenerator.model ?? 'haiku'}
-                  onValueChange={(v) =>
-                    setCommitMessageGenerator({
-                      model: v as 'default' | 'opus' | 'sonnet' | 'haiku',
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue>
-                      {(commitMessageGenerator.model ?? 'haiku') === 'default'
-                        ? t('Default')
-                        : (commitMessageGenerator.model ?? 'haiku').charAt(0).toUpperCase() +
-                          (commitMessageGenerator.model ?? 'haiku').slice(1)}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="haiku">Haiku</SelectItem>
-                    <SelectItem value="sonnet">Sonnet</SelectItem>
-                    <SelectItem value="opus">Opus</SelectItem>
-                    <SelectItem value="default">{t('Default')}</SelectItem>
-                  </SelectPopup>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('Claude model for generating commit messages')}
-                </p>
+            {/* Model - only show in CLI mode */}
+            {commitMessageGenerator.providerMode === 'cli' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('Model')}</span>
+                <div className="space-y-1.5">
+                  <Select
+                    value={commitMessageGenerator.model ?? 'haiku'}
+                    onValueChange={(v) =>
+                      setCommitMessageGenerator({
+                        model: v as 'default' | 'opus' | 'sonnet' | 'haiku',
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue>
+                        {(commitMessageGenerator.model ?? 'haiku') === 'default'
+                          ? t('Default')
+                          : (commitMessageGenerator.model ?? 'haiku').charAt(0).toUpperCase() +
+                            (commitMessageGenerator.model ?? 'haiku').slice(1)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="haiku">Haiku</SelectItem>
+                      <SelectItem value="sonnet">Sonnet</SelectItem>
+                      <SelectItem value="opus">Opus</SelectItem>
+                      <SelectItem value="default">{t('Default')}</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t('Claude model for generating commit messages')}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -484,28 +693,79 @@ export function IntegrationSettings() {
 
         {codeReview.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
-            {/* Model */}
+            {/* Provider Mode */}
             <div className="grid grid-cols-[140px_1fr] items-center gap-4">
-              <span className="text-sm font-medium">{t('Model')}</span>
+              <span className="text-sm font-medium">{t('Mode')}</span>
               <div className="space-y-1.5">
                 <Select
-                  value={codeReview.model}
-                  onValueChange={(v) => setCodeReview({ model: v as 'opus' | 'sonnet' | 'haiku' })}
+                  value={codeReview.providerMode}
+                  onValueChange={(v) => setCodeReview({ providerMode: v as AiProviderMode })}
                 >
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-44">
                     <SelectValue>
-                      {codeReview.model.charAt(0).toUpperCase() + codeReview.model.slice(1)}
+                      {PROVIDER_MODES.find((m) => m.value === codeReview.providerMode)?.label ??
+                        'CLI'}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    <SelectItem value="haiku">Haiku</SelectItem>
-                    <SelectItem value="sonnet">Sonnet</SelectItem>
-                    <SelectItem value="opus">Opus</SelectItem>
+                    {PROVIDER_MODES.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
                   </SelectPopup>
                 </Select>
-                <p className="text-xs text-muted-foreground">{t('Claude model for code review')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('Choose between local CLI providers and configured HTTP APIs')}
+                </p>
               </div>
             </div>
+
+            {codeReview.providerMode === 'api' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('API Model')}</span>
+                <div className="space-y-1.5">
+                  <ModelCombobox
+                    value={codeReview.apiModel}
+                    onChange={(value) => setCodeReview({ apiModel: value })}
+                    showDefault
+                    className="w-52"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('Leave empty to use the global default model')}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Model - only show in CLI mode */}
+            {codeReview.providerMode === 'cli' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('Model')}</span>
+                <div className="space-y-1.5">
+                  <Select
+                    value={codeReview.model}
+                    onValueChange={(v) =>
+                      setCodeReview({ model: v as 'opus' | 'sonnet' | 'haiku' })
+                    }
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue>
+                        {codeReview.model.charAt(0).toUpperCase() + codeReview.model.slice(1)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="haiku">Haiku</SelectItem>
+                      <SelectItem value="sonnet">Sonnet</SelectItem>
+                      <SelectItem value="opus">Opus</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t('Claude model for code review')}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Language */}
             <div className="grid grid-cols-[140px_1fr] items-center gap-4">
@@ -563,37 +823,87 @@ export function IntegrationSettings() {
 
         {branchNameGenerator.enabled && (
           <div className="mt-4 space-y-4 border-t pt-4">
+            {/* Provider Mode */}
             <div className="grid grid-cols-[140px_1fr] items-center gap-4">
-              <span className="text-sm font-medium">{t('Model')}</span>
+              <span className="text-sm font-medium">{t('Mode')}</span>
               <div className="space-y-1.5">
                 <Select
-                  value={branchNameGenerator.model ?? 'haiku'}
+                  value={branchNameGenerator.providerMode}
                   onValueChange={(v) =>
-                    setBranchNameGenerator({
-                      model: v as 'default' | 'opus' | 'sonnet' | 'haiku',
-                    })
+                    setBranchNameGenerator({ providerMode: v as AiProviderMode })
                   }
                 >
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-44">
                     <SelectValue>
-                      {(branchNameGenerator.model ?? 'haiku') === 'default'
-                        ? t('Default')
-                        : (branchNameGenerator.model ?? 'haiku').charAt(0).toUpperCase() +
-                          (branchNameGenerator.model ?? 'haiku').slice(1)}
+                      {PROVIDER_MODES.find((m) => m.value === branchNameGenerator.providerMode)
+                        ?.label ?? 'CLI'}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
-                    <SelectItem value="haiku">Haiku</SelectItem>
-                    <SelectItem value="sonnet">Sonnet</SelectItem>
-                    <SelectItem value="opus">Opus</SelectItem>
-                    <SelectItem value="default">{t('Default')}</SelectItem>
+                    {PROVIDER_MODES.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
                   </SelectPopup>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {t('Claude model for generating branch names')}
+                  {t('Choose between local CLI providers and configured HTTP APIs')}
                 </p>
               </div>
             </div>
+
+            {branchNameGenerator.providerMode === 'api' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('API Model')}</span>
+                <div className="space-y-1.5">
+                  <ModelCombobox
+                    value={branchNameGenerator.apiModel}
+                    onChange={(value) => setBranchNameGenerator({ apiModel: value })}
+                    showDefault
+                    className="w-52"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('Leave empty to use the global default model')}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Model - only show in CLI mode */}
+            {branchNameGenerator.providerMode === 'cli' && (
+              <div className="grid grid-cols-[140px_1fr] items-center gap-4">
+                <span className="text-sm font-medium">{t('Model')}</span>
+                <div className="space-y-1.5">
+                  <Select
+                    value={branchNameGenerator.model ?? 'haiku'}
+                    onValueChange={(v) =>
+                      setBranchNameGenerator({
+                        model: v as 'default' | 'opus' | 'sonnet' | 'haiku',
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue>
+                        {(branchNameGenerator.model ?? 'haiku') === 'default'
+                          ? t('Default')
+                          : (branchNameGenerator.model ?? 'haiku').charAt(0).toUpperCase() +
+                            (branchNameGenerator.model ?? 'haiku').slice(1)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="haiku">Haiku</SelectItem>
+                      <SelectItem value="sonnet">Sonnet</SelectItem>
+                      <SelectItem value="opus">Opus</SelectItem>
+                      <SelectItem value="default">{t('Default')}</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t('Claude model for generating branch names')}
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t('Prompt')}</span>

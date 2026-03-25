@@ -178,6 +178,14 @@ export const IPC_CHANNELS = {
   CLOUDFLARED_STOP: 'cloudflared:stop',
   CLOUDFLARED_GET_STATUS: 'cloudflared:getStatus',
   CLOUDFLARED_STATUS_CHANGED: 'cloudflared:statusChanged',
+
+  // AI API
+  AI_COMPLETION: 'ai:completion',
+  AI_STREAM_COMPLETION: 'ai:stream:completion',
+  AI_STREAM_DATA: 'ai:stream:data',
+  AI_STREAM_STOP: 'ai:stream:stop',
+  AI_TEST_CONNECTION: 'ai:test-connection',
+  AI_FETCH_MODELS: 'ai:fetch-models',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

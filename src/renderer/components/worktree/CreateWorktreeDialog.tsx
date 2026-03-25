@@ -58,7 +58,9 @@ export function CreateWorktreeDialog({
   onOpenChange: controlledOnOpenChange,
 }: CreateWorktreeDialogProps) {
   const { t } = useI18n();
-  const { defaultWorktreePath, branchNameGenerator } = useSettingsStore();
+  const defaultWorktreePath = useSettingsStore((s) => s.defaultWorktreePath);
+  const branchNameGenerator = useSettingsStore((s) => s.branchNameGenerator);
+  const thirdPartyAiConfig = useSettingsStore((s) => s.thirdPartyAiConfig);
 
   // Internal state (for uncontrolled mode)
   const [internalOpen, setInternalOpen] = React.useState(false);
@@ -262,6 +264,14 @@ export function CreateWorktreeDialog({
       const result = await window.electronAPI.git.generateBranchName(workdir, {
         prompt,
         model: branchNameGenerator.model,
+        providerMode: branchNameGenerator.providerMode,
+        apiConfig:
+          branchNameGenerator.providerMode === 'api'
+            ? {
+                ...thirdPartyAiConfig,
+                model: branchNameGenerator.apiModel || thirdPartyAiConfig.model,
+              }
+            : undefined,
       });
 
       if (result.success && result.branchName) {

@@ -1,5 +1,6 @@
 import { disposeClaudeIdeBridge } from '../services/claude/ClaudeIdeBridge';
 import { registerAgentHandlers } from './agent';
+import { registerAiIpcHandlers } from './ai';
 import { registerAppHandlers } from './app';
 import { registerClaudeConfigHandlers } from './claudeConfig';
 import { registerClaudeProviderHandlers } from './claudeProvider';
@@ -40,6 +41,7 @@ export function registerIpcHandlers(): void {
   registerHapiHandlers();
   registerClaudeProviderHandlers();
   registerClaudeConfigHandlers();
+  registerAiIpcHandlers();
 }
 
 export async function cleanupAllResources(): Promise<void> {

@@ -1,3 +1,4 @@
+import type { AiProviderMode, ThirdPartyAiConfig } from '@shared/types';
 import { create } from 'zustand';
 import { type ReviewStatus, type StreamEvent, StreamJsonParser } from '@/lib/stream-json-parser';
 
@@ -43,7 +44,7 @@ const initialReviewState: CodeReviewState = {
   reviewId: null,
 };
 
-export const useCodeReviewContinueStore = create<CodeReviewContinueState>((set, get) => ({
+export const useCodeReviewContinueStore = create<CodeReviewContinueState>((set, _get) => ({
   pendingSessionId: null,
   shouldSwitchToChat: false,
   isMinimized: false,
@@ -122,6 +123,8 @@ export async function startCodeReview(
     model: string;
     language: string;
     continueConversation: boolean;
+    providerMode?: AiProviderMode;
+    apiConfig?: ThirdPartyAiConfig;
   }
 ): Promise<void> {
   const store = useCodeReviewContinueStore.getState();
@@ -161,15 +164,20 @@ export async function startCodeReview(
       }
     } else if (event.type === 'error' && event.data) {
       console.warn('[CodeReview stderr]', event.data);
+      const message = event.data.trim();
+      if (message) {
+        store.updateReview({ error: message });
+      }
     } else if (event.type === 'exit') {
       const currentStatus = useCodeReviewContinueStore.getState().review.status;
-      if (event.exitCode !== 0 && currentStatus !== 'complete') {
+      const currentError = useCodeReviewContinueStore.getState().review.error;
+      if (event.exitCode !== 0 && currentStatus !== 'complete' && currentStatus !== 'error') {
         store.updateReview({
           status: 'error',
-          error: `Process exited with code ${event.exitCode}`,
+          error: currentError || `Process exited with code ${event.exitCode}`,
         });
       } else if (currentStatus !== 'error') {
-        store.updateReview({ status: 'complete' });
+        store.updateReview({ status: 'complete', error: null });
       }
       store.setReviewId(null);
     }
@@ -183,6 +191,8 @@ export async function startCodeReview(
       continueConversation: shouldContinue,
       sessionId: claudeSessionId,
       reviewId,
+      providerMode: settings.providerMode,
+      apiConfig: settings.apiConfig,
     });
 
     if (!result.success) {

@@ -2,8 +2,10 @@ import type { ChildProcess } from 'node:child_process';
 import { execSync, spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import type { AiProviderMode, ThirdPartyAiConfig } from '@shared/types';
 import { type FileChangeStatus, IPC_CHANNELS } from '@shared/types';
-import { ipcMain } from 'electron';
+import { ipcMain, type WebContents } from 'electron';
+import { aiCompletion, aiStreamCompletion } from '../services/ai/AiCompletionService';
 import { GitService } from '../services/git/GitService';
 import { getProxyEnvVars } from '../services/proxy/ProxyConfig';
 import { getEnvForCommand, getShellForCommand, killProcessTree } from '../utils/shell';
@@ -56,6 +58,34 @@ function getGitService(workdir: string): GitService {
     gitServices.set(resolved, new GitService(resolved));
   }
   return gitServices.get(resolved)!;
+}
+
+function sendCodeReviewData(sender: WebContents, reviewId: string, data: string): void {
+  if (!sender.isDestroyed()) {
+    sender.send(IPC_CHANNELS.GIT_CODE_REVIEW_DATA, {
+      reviewId,
+      type: 'data',
+      data,
+    });
+  }
+}
+
+function sendCodeReviewJsonEvent(
+  sender: WebContents,
+  reviewId: string,
+  event: Record<string, unknown>
+): void {
+  sendCodeReviewData(sender, reviewId, `${JSON.stringify(event)}\n`);
+}
+
+function sendCodeReviewExit(sender: WebContents, reviewId: string, exitCode: number): void {
+  if (!sender.isDestroyed()) {
+    sender.send(IPC_CHANNELS.GIT_CODE_REVIEW_DATA, {
+      reviewId,
+      type: 'exit',
+      exitCode,
+    });
+  }
 }
 
 export function registerGitHandlers(): void {
@@ -200,7 +230,13 @@ export function registerGitHandlers(): void {
     async (
       _,
       workdir: string,
-      options: { maxDiffLines: number; timeout: number; model: string }
+      options: {
+        maxDiffLines: number;
+        timeout: number;
+        model: string;
+        providerMode?: AiProviderMode;
+        apiConfig?: ThirdPartyAiConfig;
+      }
     ): Promise<{ success: boolean; message?: string; error?: string }> => {
       const resolved = validateWorkdir(workdir);
 
@@ -236,6 +272,18 @@ ${stagedStat || '(no stats)'}
 
 变更详情：
 ${truncatedDiff}`;
+
+      // 使用 AI API 模式
+      if (options.providerMode === 'api' && options.apiConfig) {
+        const result = await aiCompletion({
+          config: options.apiConfig,
+          prompt,
+          timeout: options.timeout * 1000,
+        });
+        return result.success && result.content
+          ? { success: true, message: result.content.trim() }
+          : { success: false, error: result.error || 'API call failed' };
+      }
 
       return new Promise((resolve) => {
         const timeoutMs = options.timeout * 1000;
@@ -351,6 +399,8 @@ ${truncatedDiff}`;
         continueConversation?: boolean;
         sessionId?: string;
         reviewId: string;
+        providerMode?: AiProviderMode;
+        apiConfig?: ThirdPartyAiConfig;
       }
     ): Promise<{ success: boolean; error?: string; sessionId?: string }> => {
       const resolved = validateWorkdir(workdir);
@@ -423,6 +473,65 @@ ${gitDiff || '(No diff available)'}
 
 ${gitLog || '(No commit history available)'}`;
 
+      const sender = event.sender;
+
+      // 使用 AI API 模式进行流式 code review
+      if (options.providerMode === 'api' && options.apiConfig) {
+        const controller = new AbortController();
+        activeCodeReviews.set(reviewId, {
+          kill: () => controller.abort(),
+        } as unknown as ChildProcess);
+
+        sendCodeReviewJsonEvent(sender, reviewId, {
+          type: 'system',
+          subtype: 'init',
+        });
+
+        void (async () => {
+          let exitCode = 0;
+
+          try {
+            const stream = aiStreamCompletion(options.apiConfig!, prompt, {
+              abortSignal: controller.signal,
+            });
+
+            for await (const chunk of stream) {
+              if (controller.signal.aborted) break;
+              sendCodeReviewJsonEvent(sender, reviewId, {
+                type: 'stream_event',
+                event: {
+                  type: 'content_block_delta',
+                  delta: { text: chunk },
+                },
+              });
+            }
+
+            if (!controller.signal.aborted) {
+              sendCodeReviewJsonEvent(sender, reviewId, {
+                type: 'result',
+                subtype: 'success',
+                model: options.apiConfig.model,
+              });
+            }
+          } catch (err) {
+            if (!controller.signal.aborted) {
+              exitCode = 1;
+              const message = err instanceof Error ? err.message : 'Unknown error';
+              sendCodeReviewJsonEvent(sender, reviewId, {
+                type: 'system',
+                subtype: 'error',
+                message,
+              });
+            }
+          } finally {
+            activeCodeReviews.delete(reviewId);
+            sendCodeReviewExit(sender, reviewId, controller.signal.aborted ? 0 : exitCode);
+          }
+        })();
+
+        return { success: true };
+      }
+
       const claudeArgs = [
         '-p',
         '--output-format',
@@ -448,8 +557,6 @@ ${gitLog || '(No commit history available)'}`;
 
       activeCodeReviews.set(reviewId, proc);
 
-      const sender = event.sender;
-
       // Handle stdin errors to prevent EPIPE crashes
       proc.stdin.on('error', (err) => {
         // Ignore EPIPE - process may have exited before we finished writing
@@ -462,13 +569,7 @@ ${gitLog || '(No commit history available)'}`;
       proc.stdin.end();
 
       proc.stdout.on('data', (data) => {
-        if (!sender.isDestroyed()) {
-          sender.send(IPC_CHANNELS.GIT_CODE_REVIEW_DATA, {
-            reviewId,
-            type: 'data',
-            data: data.toString(),
-          });
-        }
+        sendCodeReviewData(sender, reviewId, data.toString());
       });
 
       proc.stderr.on('data', (data) => {
@@ -483,13 +584,7 @@ ${gitLog || '(No commit history available)'}`;
 
       proc.on('close', (code) => {
         activeCodeReviews.delete(reviewId);
-        if (!sender.isDestroyed()) {
-          sender.send(IPC_CHANNELS.GIT_CODE_REVIEW_DATA, {
-            reviewId,
-            type: 'exit',
-            exitCode: code,
-          });
-        }
+        sendCodeReviewExit(sender, reviewId, code);
       });
 
       proc.on('error', (err) => {
@@ -554,9 +649,26 @@ ${gitLog || '(No commit history available)'}`;
     async (
       _,
       workdir: string,
-      options: { prompt: string; model: string }
+      options: {
+        prompt: string;
+        model: string;
+        providerMode?: AiProviderMode;
+        apiConfig?: ThirdPartyAiConfig;
+      }
     ): Promise<{ success: boolean; branchName?: string; error?: string }> => {
       const resolved = validateWorkdir(workdir);
+
+      // 使用 AI API 模式
+      if (options.providerMode === 'api' && options.apiConfig) {
+        const result = await aiCompletion({
+          config: options.apiConfig,
+          prompt: options.prompt,
+          timeout: 60000,
+        });
+        return result.success && result.content
+          ? { success: true, branchName: result.content.trim() }
+          : { success: false, error: result.error || 'API call failed' };
+      }
 
       return new Promise((resolve) => {
         const { shell, args: shellArgs } = getShellForCommand();

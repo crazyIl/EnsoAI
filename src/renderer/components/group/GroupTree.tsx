@@ -12,13 +12,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  type GroupTreeNode,
-  MAX_GROUP_DEPTH,
-  type RepositoryGroup,
   buildGroupTree,
+  type GroupTreeNode,
   getDescendantIds,
   getGroupDepth,
   isAncestor,
+  MAX_GROUP_DEPTH,
+  type RepositoryGroup,
 } from '@/App/constants';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -241,8 +241,7 @@ export function GroupTree({
             (g) => (g.parentId || null) === parentId && g.id !== drag.id
           );
           const targetIndex = siblings.findIndex((g) => g.id === indicator.targetId);
-          const order =
-            indicator.position === 'after' ? targetIndex + 1 : Math.max(0, targetIndex);
+          const order = indicator.position === 'after' ? targetIndex + 1 : Math.max(0, targetIndex);
           onMoveGroup(drag.id, parentId, order);
         }
       }
@@ -279,7 +278,11 @@ export function GroupTree({
   );
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, type: 'group' | 'repo' | 'empty', data?: RepositoryGroup | Repository) => {
+    (
+      e: React.MouseEvent,
+      type: 'group' | 'repo' | 'empty',
+      data?: RepositoryGroup | Repository
+    ) => {
       e.preventDefault();
       e.stopPropagation();
       setContextMenu({
@@ -331,7 +334,15 @@ export function GroupTree({
           onDragLeave={() => setDropIndicator(null)}
           onDrop={handleDrop}
           onClick={() => onSelectRepo(repo.path)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelectRepo(repo.path);
+            }
+          }}
           onContextMenu={(e) => handleContextMenu(e, 'repo', repo)}
+          role="button"
+          tabIndex={0}
           className={cn(
             'group/repo flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors',
             isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
@@ -389,6 +400,14 @@ export function GroupTree({
             onDrop={handleDrop}
             onContextMenu={(e) => handleContextMenu(e, 'group', node)}
             onClick={() => onToggleExpand(node.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onToggleExpand(node.id);
+              }
+            }}
+            role="button"
+            tabIndex={0}
             className={cn(
               'group/node flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors',
               'hover:bg-accent/50',
@@ -465,7 +484,9 @@ export function GroupTree({
     >
       <div className="space-y-0.5 p-1.5">
         {tree.map((node) => renderGroupNode(node))}
-        {ungroupedRepos.length > 0 && tree.length > 0 && <div className="mx-2 my-1.5 h-px bg-border" />}
+        {ungroupedRepos.length > 0 && tree.length > 0 && (
+          <div className="mx-2 my-1.5 h-px bg-border" />
+        )}
         {ungroupedRepos.map((repo) => renderRepoNode(repo, 0))}
       </div>
 
@@ -498,7 +519,11 @@ export function GroupTree({
                   setContextMenu(null);
                 }}
                 onMoveToRoot={() => {
-                  onMoveGroup(contextMenu.group!.id, null, groups.filter((g) => !g.parentId).length);
+                  onMoveGroup(
+                    contextMenu.group!.id,
+                    null,
+                    groups.filter((g) => !g.parentId).length
+                  );
                   setContextMenu(null);
                 }}
                 onClose={() => setContextMenu(null)}

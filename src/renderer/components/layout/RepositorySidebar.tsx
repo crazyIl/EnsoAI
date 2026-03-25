@@ -9,7 +9,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
-import { type RepositoryGroup, type TabId, getDescendantIds } from '@/App/constants';
+import { getDescendantIds, type RepositoryGroup, type TabId } from '@/App/constants';
 import { CreateGroupDialog, GroupEditDialog, GroupTree } from '@/components/group';
 import { RepositorySettingsDialog } from '@/components/repository/RepositorySettingsDialog';
 import {
