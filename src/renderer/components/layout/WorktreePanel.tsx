@@ -538,6 +538,27 @@ function WorktreeItem({
     }
   }, [t, worktree.path]);
 
+  const handleCopyBranch = useCallback(async () => {
+    if (!worktree.branch) return;
+    try {
+      await navigator.clipboard.writeText(worktree.branch);
+      toastManager.add({
+        title: t('Copied'),
+        description: t('Branch name copied to clipboard'),
+        type: 'success',
+        timeout: 2000,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toastManager.add({
+        title: t('Copy failed'),
+        description: message || t('Failed to copy content'),
+        type: 'error',
+        timeout: 3000,
+      });
+    }
+  }, [t, worktree.branch]);
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     const x = e.clientX;
@@ -771,6 +792,21 @@ function WorktreeItem({
               <Copy className="h-4 w-4" />
               {t('Copy Path')}
             </button>
+
+            {/* Copy Branch Name */}
+            {worktree.branch && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleCopyBranch();
+                }}
+              >
+                <GitBranch className="h-4 w-4" />
+                {t('Copy Branch Name')}
+              </button>
+            )}
 
             {/* Merge to Branch */}
             {onMerge && !isMain && !isPrunable && (
