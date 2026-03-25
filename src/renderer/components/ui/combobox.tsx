@@ -124,28 +124,30 @@ function ComboboxPopup({
   className,
   children,
   sideOffset = 4,
+  anchor,
   ...props
 }: ComboboxPrimitive.Popup.Props & {
+  anchor?: ComboboxPrimitive.Positioner.Props['anchor'];
   sideOffset?: number;
 }) {
-  const { chipsRef } = React.useContext(ComboboxContext);
+  const { chipsRef, multiple } = React.useContext(ComboboxContext);
 
   return (
     <ComboboxPrimitive.Portal>
       <ComboboxPrimitive.Positioner
-        anchor={chipsRef}
+        anchor={anchor ?? (multiple ? chipsRef : undefined)}
         className="z-[55] select-none"
         data-slot="combobox-positioner"
         sideOffset={sideOffset}
       >
         <span
           className={cn(
-            'relative flex max-h-full origin-(--transform-origin) rounded-lg border bg-popover bg-clip-padding transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-lg has-data-starting-style:scale-98 has-data-starting-style:opacity-0 dark:not-in-data-[slot=group]:bg-clip-border',
+            'relative flex max-h-full overflow-hidden origin-(--transform-origin) rounded-lg border bg-popover bg-clip-padding transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-lg has-data-starting-style:scale-98 has-data-starting-style:opacity-0 dark:not-in-data-[slot=group]:bg-clip-border',
             className
           )}
         >
           <ComboboxPrimitive.Popup
-            className="flex max-h-[min(var(--available-height),23rem)] w-(--anchor-width) max-w-(--available-width) flex-col"
+            className="flex min-h-0 max-h-[min(var(--available-height),28rem)] w-(--anchor-width) max-w-(--available-width) flex-col overflow-hidden"
             data-slot="combobox-popup"
             {...props}
           >
@@ -241,10 +243,10 @@ function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
 
 function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   return (
-    <ScrollArea scrollbarGutter scrollFade>
+    <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
       <ComboboxPrimitive.List
         className={cn(
-          'not-empty:scroll-py-1 not-empty:px-1 not-empty:py-1 in-data-has-overflow-y:pe-3',
+          'max-h-full not-empty:scroll-py-1 not-empty:px-1 not-empty:py-1 in-data-has-overflow-y:pe-3',
           className
         )}
         data-slot="combobox-list"

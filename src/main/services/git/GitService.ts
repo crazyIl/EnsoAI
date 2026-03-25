@@ -52,13 +52,30 @@ export class GitService {
   }
 
   async getBranches(): Promise<GitBranch[]> {
-    const result = await this.git.branch(['-a', '-v']);
-    const branches = Object.entries(result.branches).map(([name, info]) => ({
-      name,
-      current: info.current,
-      commit: info.commit,
-      label: info.label,
-    }));
+    const currentBranch = (await this.git.status()).current;
+    const result = await this.git.raw([
+      'for-each-ref',
+      '--sort=-committerdate',
+      '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(contents:subject)%00%(committerdate:unix)',
+      'refs/heads',
+      'refs/remotes',
+    ]);
+    const branches = result
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [refName, shortName, commit, label, lastCommitAt] = line.split('\0');
+        const name = refName.startsWith('refs/remotes/') ? `remotes/${shortName}` : shortName;
+
+        return {
+          name,
+          current: name === currentBranch,
+          commit,
+          label,
+          lastCommitAt: Number(lastCommitAt || '0'),
+        };
+      });
 
     // Empty repo (no commits yet) - return placeholder for current branch
     if (branches.length === 0) {
@@ -71,6 +88,7 @@ export class GitService {
             current: true,
             commit: '',
             label: '(no commits yet)',
+            lastCommitAt: 0,
           },
         ];
       } catch {

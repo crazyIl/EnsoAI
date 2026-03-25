@@ -5,7 +5,7 @@ import type {
   WorktreeMergeOptions,
   WorktreeMergeResult,
 } from '@shared/types';
-import { GitBranch, GitMerge } from 'lucide-react';
+import { GitMerge } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select';
 import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
+import { BranchSearchSelect } from './BranchSearchSelect';
 
 interface MergeWorktreeDialogProps {
   open: boolean;
@@ -64,11 +65,6 @@ export function MergeWorktreeDialog({
   const mainBranch = React.useMemo(() => {
     return branches.find((b) => b.name === 'main' || b.name === 'master' || b.name === 'develop');
   }, [branches]);
-
-  // Filter out the worktree's own branch and remote branches
-  const availableBranches = React.useMemo(() => {
-    return branches.filter((b) => b.name !== worktree.branch && !b.name.startsWith('remotes/'));
-  }, [branches, worktree.branch]);
 
   // Set default target branch when dialog opens
   React.useEffect(() => {
@@ -179,22 +175,16 @@ export function MergeWorktreeDialog({
             {/* Target Branch Selection */}
             <Field>
               <FieldLabel>{t('Target branch')}</FieldLabel>
-              <Select value={targetBranch} onValueChange={(v) => setTargetBranch(v || '')}>
-                <SelectTrigger>
-                  <SelectValue>{targetBranch || t('Choose target branch...')}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {availableBranches.map((branch) => (
-                    <SelectItem key={branch.name} value={branch.name}>
-                      <GitBranch className="mr-2 h-4 w-4" />
-                      {branch.name}
-                      {(branch.name === 'main' || branch.name === 'master') && (
-                        <span className="ml-2 text-xs text-muted-foreground">{t('Default')}</span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+              <BranchSearchSelect
+                branches={branches}
+                value={targetBranch}
+                onValueChange={setTargetBranch}
+                placeholder={t('Choose target branch...')}
+                searchPlaceholder={t('Search branches...')}
+                includeRemote={false}
+                excludedBranchNames={worktree.branch ? [worktree.branch] : []}
+                showDefaultBadge
+              />
               <FieldDescription>{t('The branch to merge your changes into')}</FieldDescription>
             </Field>
 

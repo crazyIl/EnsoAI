@@ -16,6 +16,7 @@ export interface GitBranch {
   current: boolean;
   commit: string;
   label: string;
+  lastCommitAt: number;
 }
 
 export interface GitLogEntry {
