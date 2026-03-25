@@ -75,6 +75,7 @@ import { useInitScriptStore } from './stores/initScript';
 import { useNavigationStore } from './stores/navigation';
 import { useSettingsStore } from './stores/settings';
 import { useWorktreeStore } from './stores/worktree';
+import { useWorktreeActivityStore } from './stores/worktreeActivity';
 
 // Initialize global clone progress listener
 initCloneProgressListener();
@@ -726,6 +727,7 @@ export default function App() {
     if (savedWorktreePath) {
       // Set temporary worktree with just the path; full object synced after worktrees load
       setActiveWorktree({ path: savedWorktreePath } as GitWorktree);
+      useWorktreeActivityStore.getState().touchWorktree(savedWorktreePath);
       // Restore the tab state for this worktree
       const savedTab = worktreeTabMap[savedWorktreePath] || 'chat';
       setActiveTab(savedTab);
@@ -749,6 +751,9 @@ export default function App() {
       // Switch to new worktree (editor state will be synced by useEffect)
       setActiveWorktree(worktree);
 
+      // Update last active timestamp for running projects sorting
+      useWorktreeActivityStore.getState().touchWorktree(worktree.path);
+
       // Restore the new worktree's tab state (default to 'chat')
       const savedTab = worktreeTabMap[worktree.path] || 'chat';
       setActiveTab(savedTab);
@@ -771,6 +776,7 @@ export default function App() {
           if (found) {
             setSelectedRepo(repo.path);
             setActiveWorktree(found);
+            useWorktreeActivityStore.getState().touchWorktree(found.path);
             const savedTab = worktreeTabMap[found.path] || 'chat';
             setActiveTab(savedTab);
             return;

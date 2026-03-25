@@ -4,6 +4,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 interface WorktreeActivity {
   agentCount: number;
   terminalCount: number;
+  lastActiveAt: number;
 }
 
 interface DiffStats {
@@ -36,6 +37,9 @@ interface WorktreeActivityState {
   getActivity: (worktreePath: string) => WorktreeActivity;
   getDiffStats: (worktreePath: string) => DiffStats;
 
+  // Touch worktree (update lastActiveAt)
+  touchWorktree: (worktreePath: string) => void;
+
   // Clean up
   clearWorktree: (worktreePath: string) => void;
 
@@ -48,7 +52,7 @@ interface WorktreeActivityState {
   closeTerminalSessions: (worktreePath: string) => void;
 }
 
-const defaultActivity: WorktreeActivity = { agentCount: 0, terminalCount: 0 };
+const defaultActivity: WorktreeActivity = { agentCount: 0, terminalCount: 0, lastActiveAt: 0 };
 const defaultDiffStats: DiffStats = { insertions: 0, deletions: 0 };
 
 export const useWorktreeActivityStore = create<WorktreeActivityState>()(
@@ -164,6 +168,17 @@ export const useWorktreeActivityStore = create<WorktreeActivityState>()(
     getDiffStats: (worktreePath) => {
       return get().diffStats[worktreePath] || defaultDiffStats;
     },
+
+    touchWorktree: (worktreePath) =>
+      set((state) => {
+        const current = state.activities[worktreePath] || defaultActivity;
+        return {
+          activities: {
+            ...state.activities,
+            [worktreePath]: { ...current, lastActiveAt: Date.now() },
+          },
+        };
+      }),
 
     clearWorktree: (worktreePath) =>
       set((state) => {

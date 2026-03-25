@@ -76,6 +76,7 @@ export function RunningProjectsPopover({
   const activeWorktreePaths = useMemo(() => {
     return Object.entries(activities)
       .filter(([, act]) => act.agentCount > 0 || act.terminalCount > 0)
+      .sort(([, a], [, b]) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
       .map(([path]) => path);
   }, [activities]);
 
