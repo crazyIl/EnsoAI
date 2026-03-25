@@ -7,11 +7,10 @@ import type {
 } from '@shared/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { normalizeHexColor } from '@/lib/colors';
 import {
   ALL_GROUP_ID,
-  DEFAULT_GROUP_COLOR,
   generateGroupId,
+  getDescendantIds,
   panelTransition,
   type Repository,
   type RepositoryGroup,
@@ -19,6 +18,7 @@ import {
 } from './App/constants';
 import {
   getActiveGroupId,
+  getExpandedGroupIds,
   getRepositorySettings,
   getStoredBoolean,
   getStoredGroups,
@@ -30,6 +30,7 @@ import {
   pathsEqual,
   STORAGE_KEYS,
   saveActiveGroupId,
+  saveExpandedGroupIds,
   saveGroups,
   saveTabOrder,
   saveWorktreeOrderMap,
@@ -96,6 +97,7 @@ export default function App() {
   const [activeWorktree, setActiveWorktree] = useState<GitWorktree | null>(null);
   const [groups, setGroups] = useState<RepositoryGroup[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string>(ALL_GROUP_ID);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(getExpandedGroupIds);
 
   // Panel collapsed states - initialize from localStorage
   const [repositoryCollapsed, setRepositoryCollapsed] = useState(() =>
@@ -321,29 +323,33 @@ export default function App() {
   }, [groups]);
 
   const handleCreateGroup = useCallback(
-    (name: string, emoji: string, color: string) => {
-      const normalizedColor = normalizeHexColor(color, DEFAULT_GROUP_COLOR);
+    (name: string, parentId?: string) => {
+      const siblings = groups.filter((g) => (g.parentId || undefined) === parentId);
       const newGroup: RepositoryGroup = {
         id: generateGroupId(),
         name: name.trim(),
-        emoji,
-        color: normalizedColor,
-        order: groups.length,
+        order: siblings.length,
+        parentId,
       };
       const updated = [...groups, newGroup];
       setGroups(updated);
       saveGroups(updated);
+      if (parentId) {
+        setExpandedGroupIds((prev) => {
+          const next = new Set(prev);
+          next.add(parentId);
+          saveExpandedGroupIds(next);
+          return next;
+        });
+      }
       return newGroup;
     },
     [groups]
   );
 
   const handleUpdateGroup = useCallback(
-    (groupId: string, name: string, emoji: string, color: string) => {
-      const normalizedColor = normalizeHexColor(color, DEFAULT_GROUP_COLOR);
-      const updated = groups.map((g) =>
-        g.id === groupId ? { ...g, name: name.trim(), emoji, color: normalizedColor } : g
-      );
+    (groupId: string, name: string) => {
+      const updated = groups.map((g) => (g.id === groupId ? { ...g, name: name.trim() } : g));
       setGroups(updated);
       saveGroups(updated);
     },
@@ -352,21 +358,37 @@ export default function App() {
 
   const handleDeleteGroup = useCallback(
     (groupId: string) => {
-      const updatedGroups = groups
-        .filter((g) => g.id !== groupId)
-        .map((g, i) => ({ ...g, order: i }));
-      setGroups(updatedGroups);
-      saveGroups(updatedGroups);
+      const idsToDelete = new Set(getDescendantIds(groupId, groups));
+      const updatedGroups = groups.filter((g) => !idsToDelete.has(g.id));
+      const parentId = groups.find((g) => g.id === groupId)?.parentId;
+      const reordered = updatedGroups.map((g) => {
+        if ((g.parentId || undefined) === parentId) {
+          const siblings = updatedGroups
+            .filter((s) => (s.parentId || undefined) === parentId)
+            .sort((a, b) => a.order - b.order);
+          return { ...g, order: siblings.indexOf(g) };
+        }
+        return g;
+      });
+      setGroups(reordered);
+      saveGroups(reordered);
 
       const updatedRepos = repositories.map((r) =>
-        r.groupId === groupId ? { ...r, groupId: undefined } : r
+        r.groupId && idsToDelete.has(r.groupId) ? { ...r, groupId: undefined } : r
       );
       saveRepositories(updatedRepos);
 
-      if (activeGroupId === groupId) {
+      if (activeGroupId === groupId || idsToDelete.has(activeGroupId)) {
         setActiveGroupId(ALL_GROUP_ID);
         saveActiveGroupId(ALL_GROUP_ID);
       }
+
+      setExpandedGroupIds((prev) => {
+        const next = new Set(prev);
+        for (const id of idsToDelete) next.delete(id);
+        saveExpandedGroupIds(next);
+        return next;
+      });
     },
     [groups, repositories, saveRepositories, activeGroupId]
   );
@@ -384,6 +406,132 @@ export default function App() {
       saveRepositories(updated);
     },
     [repositories, saveRepositories]
+  );
+
+  const handleMoveGroup = useCallback(
+    (groupId: string, targetParentId: string | null, order: number) => {
+      const movingGroup = groups.find((g) => g.id === groupId);
+      if (!movingGroup) return;
+
+      const normalizeParentId = (parentId?: string | null) => parentId ?? null;
+      const reindexSiblingOrders = (
+        items: RepositoryGroup[],
+        parentId: string | null
+      ): RepositoryGroup[] => {
+        const siblingOrder = new Map(
+          items
+            .filter((g) => normalizeParentId(g.parentId) === parentId)
+            .sort((a, b) => a.order - b.order)
+            .map((g, index) => [g.id, index])
+        );
+
+        return items.map((g) =>
+          siblingOrder.has(g.id) ? { ...g, order: siblingOrder.get(g.id)! } : g
+        );
+      };
+
+      const sourceParentId = normalizeParentId(movingGroup.parentId);
+      const normalizedTargetParentId = normalizeParentId(targetParentId);
+      const remainingGroups = groups.filter((g) => g.id !== groupId);
+      const normalizedRemaining = reindexSiblingOrders(remainingGroups, sourceParentId);
+      const targetSiblings = normalizedRemaining
+        .filter((g) => normalizeParentId(g.parentId) === normalizedTargetParentId)
+        .sort((a, b) => a.order - b.order);
+
+      const insertIndex = Math.max(0, Math.min(order, targetSiblings.length));
+      targetSiblings.splice(insertIndex, 0, {
+        ...movingGroup,
+        parentId: targetParentId || undefined,
+      });
+
+      const targetOrder = new Map(targetSiblings.map((g, index) => [g.id, index]));
+      const reordered = [...normalizedRemaining, movingGroup].map((g) => {
+        if (!targetOrder.has(g.id)) return g;
+        return {
+          ...g,
+          parentId: g.id === groupId ? targetParentId || undefined : g.parentId,
+          order: targetOrder.get(g.id)!,
+        };
+      });
+
+      setGroups(reordered);
+      saveGroups(reordered);
+    },
+    [groups]
+  );
+
+  const handleReorderRepo = useCallback(
+    (
+      repoPath: string,
+      targetGroupId: string | null,
+      targetRepoPath: string,
+      position: 'before' | 'after'
+    ) => {
+      if (repoPath === targetRepoPath) return;
+
+      const draggedRepo = repositories.find((r) => r.path === repoPath);
+      if (!draggedRepo) return;
+
+      const remainingRepos = repositories.filter((r) => r.path !== repoPath);
+      const targetIndex = remainingRepos.findIndex((r) => r.path === targetRepoPath);
+      if (targetIndex === -1) return;
+
+      const movedRepo: Repository = {
+        ...draggedRepo,
+        groupId: targetGroupId || undefined,
+      };
+      const insertIndex = position === 'after' ? targetIndex + 1 : targetIndex;
+      remainingRepos.splice(insertIndex, 0, movedRepo);
+      saveRepositories(remainingRepos);
+    },
+    [repositories, saveRepositories]
+  );
+
+  const handleToggleGroupExpand = useCallback((groupId: string) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      saveExpandedGroupIds(next);
+      return next;
+    });
+  }, []);
+
+  const handleExpandAllGroups = useCallback(
+    (groupId?: string) => {
+      setExpandedGroupIds((prev) => {
+        const next = new Set(prev);
+        if (groupId) {
+          const ids = getDescendantIds(groupId, groups);
+          for (const id of ids) next.add(id);
+        } else {
+          for (const g of groups) next.add(g.id);
+        }
+        saveExpandedGroupIds(next);
+        return next;
+      });
+    },
+    [groups]
+  );
+
+  const handleCollapseAllGroups = useCallback(
+    (groupId?: string) => {
+      setExpandedGroupIds((prev) => {
+        const next = new Set(prev);
+        if (groupId) {
+          const ids = getDescendantIds(groupId, groups);
+          for (const id of ids) next.delete(id);
+        } else {
+          next.clear();
+        }
+        saveExpandedGroupIds(next);
+        return next;
+      });
+    },
+    [groups]
   );
 
   // Reorder repositories
@@ -931,17 +1079,20 @@ export default function App() {
                   onSelectRepo={handleSelectRepo}
                   onAddRepository={handleAddRepository}
                   onRemoveRepository={handleRemoveRepository}
-                  onReorderRepositories={handleReorderRepositories}
                   onOpenSettings={() => setSettingsOpen(true)}
                   collapsed={false}
                   onCollapse={() => setRepositoryCollapsed(true)}
                   groups={sortedGroups}
-                  activeGroupId={activeGroupId}
-                  onSwitchGroup={handleSwitchGroup}
+                  expandedGroupIds={expandedGroupIds}
+                  onToggleGroupExpand={handleToggleGroupExpand}
+                  onExpandAllGroups={handleExpandAllGroups}
+                  onCollapseAllGroups={handleCollapseAllGroups}
                   onCreateGroup={handleCreateGroup}
                   onUpdateGroup={handleUpdateGroup}
                   onDeleteGroup={handleDeleteGroup}
                   onMoveToGroup={handleMoveToGroup}
+                  onMoveGroup={handleMoveGroup}
+                  onReorderRepo={handleReorderRepo}
                   onSwitchTab={setActiveTab}
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
                 />

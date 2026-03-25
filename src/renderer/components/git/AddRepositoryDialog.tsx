@@ -311,7 +311,7 @@ export function AddRepositoryDialog({
     if (!selectedGroupId) return t('No Group');
     const group = groups.find((g) => g.id === selectedGroupId);
     if (!group) return t('No Group');
-    return `${group.emoji} ${group.name}`;
+    return group.name;
   }, [groups, selectedGroupId, t]);
 
   const groupSelect = (
@@ -333,7 +333,7 @@ export function AddRepositoryDialog({
           {groups.length > 0 && <SelectSeparator />}
           {groups.map((group) => (
             <SelectItem key={group.id} value={group.id}>
-              {group.emoji} {group.name}
+              {group.name}
             </SelectItem>
           ))}
         </SelectPopup>

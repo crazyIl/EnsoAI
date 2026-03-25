@@ -19,27 +19,12 @@ export const DEFAULT_TAB_ORDER: TabId[] = ['chat', 'file', 'terminal', 'source-c
 /** 全部分组 ID（特殊值） */
 export const ALL_GROUP_ID = '__all__';
 
-/** 分组 Emoji 预设 */
-export const GROUP_EMOJI_PRESETS = ['🏠', '💼', '🧪', '📦', '🎮', '📚', '🔧', '🌟', '🎯', '🚀'];
-
-/** 分组标签颜色预设（hex） */
-export const GROUP_COLOR_PRESETS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#a855f7', // purple
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#64748b', // slate
-] as const;
-
-/** 默认分组标签颜色 */
-export const DEFAULT_GROUP_COLOR: string = GROUP_COLOR_PRESETS[0];
-
 /** 生成分组 ID */
 export const generateGroupId = (): string =>
   `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+/** 最大分组嵌套层级 */
+export const MAX_GROUP_DEPTH = 3;
 
 /** 仓库分组 */
 export interface RepositoryGroup {
@@ -47,12 +32,80 @@ export interface RepositoryGroup {
   id: string;
   /** 分组名称 */
   name: string;
-  /** Emoji 图标 */
-  emoji: string;
-  /** 标签颜色（hex） */
-  color: string;
-  /** 显示顺序 */
+  /** 显示顺序（同级内排序） */
   order: number;
+  /** 父分组 ID，undefined = 顶级分组 */
+  parentId?: string;
+}
+
+/** 带子节点的树形分组节点 */
+export interface GroupTreeNode extends RepositoryGroup {
+  children: GroupTreeNode[];
+  depth: number;
+}
+
+/** 构建分组树 */
+export function buildGroupTree(groups: RepositoryGroup[]): GroupTreeNode[] {
+  const sorted = [...groups].sort((a, b) => a.order - b.order);
+  const map = new Map<string, GroupTreeNode>();
+
+  for (const g of sorted) {
+    map.set(g.id, { ...g, children: [], depth: 0 });
+  }
+
+  const roots: GroupTreeNode[] = [];
+
+  for (const node of map.values()) {
+    if (node.parentId && map.has(node.parentId)) {
+      const parent = map.get(node.parentId)!;
+      node.depth = parent.depth + 1;
+      parent.children.push(node);
+    } else {
+      node.depth = 0;
+      roots.push(node);
+    }
+  }
+
+  const fixDepth = (nodes: GroupTreeNode[], depth: number) => {
+    for (const n of nodes) {
+      n.depth = depth;
+      fixDepth(n.children, depth + 1);
+    }
+  };
+
+  fixDepth(roots, 0);
+  return roots;
+}
+
+/** 获取分组的深度 */
+export function getGroupDepth(groupId: string, groups: RepositoryGroup[]): number {
+  let depth = 0;
+  let current = groups.find((g) => g.id === groupId);
+  while (current?.parentId) {
+    depth++;
+    current = groups.find((g) => g.id === current!.parentId);
+  }
+  return depth;
+}
+
+/** 获取分组的所有后代 ID（包括自身） */
+export function getDescendantIds(groupId: string, groups: RepositoryGroup[]): string[] {
+  const result = [groupId];
+  const children = groups.filter((g) => g.parentId === groupId);
+  for (const child of children) {
+    result.push(...getDescendantIds(child.id, groups));
+  }
+  return result;
+}
+
+/** 判断 targetId 是否是 groupId 的祖先 */
+export function isAncestor(groupId: string, targetId: string, groups: RepositoryGroup[]): boolean {
+  let current = groups.find((g) => g.id === groupId);
+  while (current?.parentId) {
+    if (current.parentId === targetId) return true;
+    current = groups.find((g) => g.id === current!.parentId);
+  }
+  return false;
 }
 
 // Repository type

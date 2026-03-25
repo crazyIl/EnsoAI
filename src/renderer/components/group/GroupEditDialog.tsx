@@ -1,6 +1,6 @@
 import { Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { DEFAULT_GROUP_COLOR, GROUP_COLOR_PRESETS, type RepositoryGroup } from '@/App/constants';
+import type { RepositoryGroup } from '@/App/constants';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -20,14 +20,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useI18n } from '@/i18n';
-import { EmojiPicker } from './EmojiPicker';
 
 interface GroupEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   group: RepositoryGroup | null;
   repositoryCount: number;
-  onUpdate: (groupId: string, name: string, emoji: string, color: string) => void;
+  onUpdate: (groupId: string, name: string) => void;
   onDelete: (groupId: string) => void;
 }
 
@@ -41,21 +40,17 @@ export function GroupEditDialog({
 }: GroupEditDialogProps) {
   const { t, tNode } = useI18n();
   const [name, setName] = useState('');
-  const [emoji, setEmoji] = useState('');
-  const [color, setColor] = useState<string>(DEFAULT_GROUP_COLOR);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   useEffect(() => {
     if (group) {
       setName(group.name);
-      setEmoji(group.emoji);
-      setColor(group.color || DEFAULT_GROUP_COLOR);
     }
   }, [group]);
 
   const handleSave = () => {
     if (group && name.trim()) {
-      onUpdate(group.id, name.trim(), emoji, color);
+      onUpdate(group.id, name.trim());
       onOpenChange(false);
     }
   };
@@ -78,60 +73,23 @@ export function GroupEditDialog({
             <DialogTitle>{t('Edit Group')}</DialogTitle>
           </DialogHeader>
           <DialogPanel>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">{t('Group Name')}</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-                  className="mt-2 w-full h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">{t('Icon')}</label>
-                <div className="mt-2">
-                  <EmojiPicker value={emoji} onChange={setEmoji} />
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium">{t('Color')}</label>
-                <div className="mt-2 grid grid-cols-8 gap-2">
-                  {GROUP_COLOR_PRESETS.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      className="h-6 w-6 rounded-md border"
-                      style={{
-                        backgroundColor: preset,
-                        outline: color === preset ? `2px solid ${preset}` : undefined,
-                        outlineOffset: 2,
-                      }}
-                      onClick={() => setColor(preset)}
-                      aria-label={preset}
-                    />
-                  ))}
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{t('Custom color')}</span>
-                  <input
-                    type="color"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="h-8 w-10 rounded-md border bg-background p-1"
-                    aria-label={t('Custom color')}
-                  />
-                </div>
-              </div>
+            <div>
+              <label className="text-sm font-medium">{t('Group Name')}</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+                className="mt-2 h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                autoFocus
+              />
             </div>
           </DialogPanel>
           <DialogFooter variant="bare">
             <button
               type="button"
               onClick={() => setDeleteDialogOpen(true)}
-              className="flex items-center gap-2 text-sm text-destructive hover:underline mr-auto"
+              className="mr-auto flex items-center gap-2 text-sm text-destructive hover:underline"
             >
               <Trash2 className="h-4 w-4" />
               {t('Delete Group')}
@@ -155,7 +113,7 @@ export function GroupEditDialog({
                 name: <strong>{group.name}</strong>,
               })}
               {repositoryCount > 0 && (
-                <span className="block mt-2 text-muted-foreground">
+                <span className="mt-2 block text-muted-foreground">
                   {t('{{count}} repositories in this group will be moved to ungrouped.', {
                     count: repositoryCount,
                   })}

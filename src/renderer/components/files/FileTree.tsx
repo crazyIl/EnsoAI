@@ -121,49 +121,51 @@ export function FileTree({
 
   return (
     <ScrollArea className="h-full">
-      <div className="py-1">
+      <div className="min-w-full py-1">
         {/* Toolbar */}
-        <div className="flex items-center justify-end gap-1 pl-2 pr-3 pb-1">
-          <button
-            type="button"
-            onClick={() => {
-              const targetPath = getCreateTargetPath();
-              if (targetPath) onCreateFile(targetPath);
-            }}
-            className="p-1 text-muted-foreground hover:text-foreground rounded"
-            title={t('New File')}
-          >
-            <FilePlus className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const targetPath = getCreateTargetPath();
-              if (targetPath) onCreateDirectory(targetPath);
-            }}
-            className="p-1 text-muted-foreground hover:text-foreground rounded"
-            title={t('New Folder')}
-          >
-            <FolderPlus className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="p-1 text-muted-foreground hover:text-foreground rounded"
-            title={t('Refresh')}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          {onOpenSearch && (
+        <div className="flex min-w-full justify-end px-2 pb-1">
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={onOpenSearch}
-              className="p-1 text-muted-foreground hover:text-foreground rounded"
-              title={t('Search')}
+              onClick={() => {
+                const targetPath = getCreateTargetPath();
+                if (targetPath) onCreateFile(targetPath);
+              }}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              title={t('New File')}
             >
-              <Search className="h-4 w-4" />
+              <FilePlus className="h-4 w-4" />
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => {
+                const targetPath = getCreateTargetPath();
+                if (targetPath) onCreateDirectory(targetPath);
+              }}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              title={t('New Folder')}
+            >
+              <FolderPlus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              title={t('Refresh')}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            {onOpenSearch && (
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="rounded p-1 text-muted-foreground hover:text-foreground"
+                title={t('Search')}
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
         {/* Tree nodes */}
         {tree.map((node) => (

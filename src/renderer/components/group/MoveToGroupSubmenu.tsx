@@ -57,7 +57,6 @@ export function MoveToGroupSubmenu({
             <span className="w-4 h-4 flex items-center justify-center">
               {currentGroupId === group.id && <Check className="h-3.5 w-3.5" />}
             </span>
-            {group.emoji && <span>{group.emoji}</span>}
             <span className="truncate">{group.name}</span>
           </button>
         ))}

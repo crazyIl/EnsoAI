@@ -49,7 +49,6 @@ import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useI18n } from '@/i18n';
-import { hexToRgba } from '@/lib/colors';
 import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
@@ -83,8 +82,8 @@ interface TreeSidebarProps {
   groups: RepositoryGroup[];
   activeGroupId: string;
   onSwitchGroup: (groupId: string) => void;
-  onCreateGroup: (name: string, emoji: string, color: string) => RepositoryGroup;
-  onUpdateGroup: (groupId: string, name: string, emoji: string, color: string) => void;
+  onCreateGroup: (name: string) => RepositoryGroup;
+  onUpdateGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string) => void;
   onMoveToGroup?: (repoPath: string, groupId: string | null) => void;
   onSwitchTab?: (tab: TabId) => void;
@@ -425,6 +424,17 @@ export function TreeSidebar({
     return filtered;
   }, [repositories, worktreesMap, searchQuery, activeGroupId]);
 
+  const filteredReposWithIndex = useMemo(
+    () =>
+      filteredRepos
+        .map((repo) => ({
+          repo,
+          originalIndex: repositories.findIndex((r) => r.path === repo.path),
+        }))
+        .filter(({ originalIndex }) => originalIndex >= 0),
+    [filteredRepos, repositories]
+  );
+
   // Filter worktrees for a specific repo
   const getFilteredWorktrees = useCallback(
     (repoPath: string) => {
@@ -547,7 +557,7 @@ export function TreeSidebar({
           </Empty>
         ) : (
           <div className="space-y-1">
-            {filteredRepos.map((repo, index) => {
+            {filteredReposWithIndex.map(({ repo, originalIndex }) => {
               const isSelected = selectedRepo === repo.path;
               const isExpanded = expandedRepos.has(repo.path);
               const repoWorktrees = getFilteredWorktrees(repo.path);
@@ -560,20 +570,20 @@ export function TreeSidebar({
                   {/* Repository row */}
                   <div className="relative">
                     {/* Drop indicator - top */}
-                    {dropRepoTargetIndex === index &&
+                    {dropRepoTargetIndex === originalIndex &&
                       draggedRepoIndexRef.current !== null &&
-                      draggedRepoIndexRef.current > index && (
+                      draggedRepoIndexRef.current > originalIndex && (
                         <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
                       )}
                     <div
                       role="button"
                       tabIndex={0}
                       draggable={!searchQuery && !!onReorderRepositories}
-                      onDragStart={(e) => handleRepoDragStart(e, index, repo)}
+                      onDragStart={(e) => handleRepoDragStart(e, originalIndex, repo)}
                       onDragEnd={handleRepoDragEnd}
-                      onDragOver={(e) => handleRepoDragOver(e, index)}
+                      onDragOver={(e) => handleRepoDragOver(e, originalIndex)}
                       onDragLeave={handleRepoDragLeave}
-                      onDrop={(e) => handleRepoDrop(e, index)}
+                      onDrop={(e) => handleRepoDrop(e, originalIndex)}
                       onContextMenu={(e) => handleRepoContextMenu(e, repo)}
                       onClick={() => {
                         // Only toggle expand/collapse, don't auto-activate worktree
@@ -588,7 +598,7 @@ export function TreeSidebar({
                       className={cn(
                         'group flex w-full flex-col gap-1 rounded-lg px-2 py-2 text-left transition-colors cursor-pointer',
                         isSelected ? 'bg-accent/50 text-accent-foreground' : 'hover:bg-accent/30',
-                        draggedRepoIndexRef.current === index && 'opacity-50'
+                        draggedRepoIndexRef.current === originalIndex && 'opacity-50'
                       )}
                     >
                       {/* Row 1: Chevron + Icon + Name + Actions (vertically centered) */}
@@ -624,26 +634,13 @@ export function TreeSidebar({
                         </button>
                       </div>
 
-                      {/* Row 2: Tags */}
+                      {/* Row 2: Group */}
                       {(() => {
                         const group = repo.groupId ? groupsById.get(repo.groupId) : undefined;
                         if (!group) return null;
-
-                        const bg = hexToRgba(group.color, 0.12);
-                        const border = hexToRgba(group.color, 0.35);
                         return (
                           <div className="flex items-center gap-1 pl-6">
-                            <span
-                              className="inline-flex h-5 max-w-full items-center gap-1 rounded-md border px-1.5 text-[10px] text-foreground/80"
-                              style={{
-                                backgroundColor: bg ?? undefined,
-                                borderColor: border ?? undefined,
-                                color: group.color,
-                              }}
-                            >
-                              {group.emoji && (
-                                <span className="text-[0.9em] opacity-90">{group.emoji}</span>
-                              )}
+                            <span className="inline-flex h-5 max-w-full items-center rounded-md border px-1.5 text-[10px] text-muted-foreground">
                               <span className="truncate">{group.name}</span>
                             </span>
                           </div>
@@ -659,9 +656,9 @@ export function TreeSidebar({
                       </span>
                     </div>
                     {/* Drop indicator - bottom */}
-                    {dropRepoTargetIndex === index &&
+                    {dropRepoTargetIndex === originalIndex &&
                       draggedRepoIndexRef.current !== null &&
-                      draggedRepoIndexRef.current < index && (
+                      draggedRepoIndexRef.current < originalIndex && (
                         <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
                       )}
                   </div>

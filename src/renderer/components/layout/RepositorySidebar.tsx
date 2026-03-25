@@ -1,20 +1,16 @@
 import {
+  ChevronsDownUp,
+  ChevronsUpDown,
   FolderGit2,
-  FolderMinus,
+  FolderPlus,
   PanelLeftClose,
   Plus,
   Search,
   Settings,
-  Settings2,
 } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { ALL_GROUP_ID, type RepositoryGroup, type TabId } from '@/App/constants';
-import {
-  CreateGroupDialog,
-  GroupEditDialog,
-  GroupSelector,
-  MoveToGroupSubmenu,
-} from '@/components/group';
+import { useCallback, useMemo, useState } from 'react';
+import { type RepositoryGroup, type TabId, getDescendantIds } from '@/App/constants';
+import { CreateGroupDialog, GroupEditDialog, GroupTree } from '@/components/group';
 import { RepositorySettingsDialog } from '@/components/repository/RepositorySettingsDialog';
 import {
   AlertDialog,
@@ -34,8 +30,6 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { useI18n } from '@/i18n';
-import { hexToRgba } from '@/lib/colors';
-import { cn } from '@/lib/utils';
 import { RunningProjectsPopover } from './RunningProjectsPopover';
 
 interface Repository {
@@ -50,17 +44,25 @@ interface RepositorySidebarProps {
   onSelectRepo: (repoPath: string) => void;
   onAddRepository: () => void;
   onRemoveRepository?: (repoPath: string) => void;
-  onReorderRepositories?: (fromIndex: number, toIndex: number) => void;
   onOpenSettings?: () => void;
   collapsed?: boolean;
   onCollapse?: () => void;
   groups: RepositoryGroup[];
-  activeGroupId: string;
-  onSwitchGroup: (groupId: string) => void;
-  onCreateGroup: (name: string, emoji: string, color: string) => RepositoryGroup;
-  onUpdateGroup: (groupId: string, name: string, emoji: string, color: string) => void;
+  expandedGroupIds: Set<string>;
+  onToggleGroupExpand: (groupId: string) => void;
+  onExpandAllGroups: (groupId?: string) => void;
+  onCollapseAllGroups: (groupId?: string) => void;
+  onCreateGroup: (name: string, parentId?: string) => RepositoryGroup;
+  onUpdateGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string) => void;
-  onMoveToGroup?: (repoPath: string, groupId: string | null) => void;
+  onMoveToGroup: (repoPath: string, groupId: string | null) => void;
+  onMoveGroup: (groupId: string, targetParentId: string | null, order: number) => void;
+  onReorderRepo: (
+    repoPath: string,
+    targetGroupId: string | null,
+    targetRepoPath: string,
+    position: 'before' | 'after'
+  ) => void;
   onSwitchTab?: (tab: TabId) => void;
   onSwitchWorktreeByPath?: (path: string) => Promise<void> | void;
 }
@@ -71,118 +73,38 @@ export function RepositorySidebar({
   onSelectRepo,
   onAddRepository,
   onRemoveRepository,
-  onReorderRepositories,
   onOpenSettings,
   collapsed: _collapsed = false,
   onCollapse,
   groups,
-  activeGroupId,
-  onSwitchGroup,
+  expandedGroupIds,
+  onToggleGroupExpand,
+  onExpandAllGroups,
+  onCollapseAllGroups,
   onCreateGroup,
   onUpdateGroup,
   onDeleteGroup,
   onMoveToGroup,
+  onMoveGroup,
+  onReorderRepo,
   onSwitchTab,
   onSwitchWorktreeByPath,
 }: RepositorySidebarProps) {
   const { t, tNode } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
-  const [menuRepo, setMenuRepo] = useState<Repository | null>(null);
   const [repoToRemove, setRepoToRemove] = useState<Repository | null>(null);
   const [repoSettingsOpen, setRepoSettingsOpen] = useState(false);
   const [repoSettingsTarget, setRepoSettingsTarget] = useState<Repository | null>(null);
   const [createGroupDialogOpen, setCreateGroupDialogOpen] = useState(false);
+  const [createGroupParentId, setCreateGroupParentId] = useState<string | undefined>();
   const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
+  const [editGroupTarget, setEditGroupTarget] = useState<RepositoryGroup | null>(null);
 
-  const activeGroup = groups.find((g) => g.id === activeGroupId);
-  const groupsById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
-  const repositoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const group of groups) {
-      counts[group.id] = repositories.filter((r) => r.groupId === group.id).length;
-    }
-    return counts;
-  }, [groups, repositories]);
-
-  // Drag reorder
-  const draggedIndexRef = useRef<number | null>(null);
-  const dragImageRef = useRef<HTMLDivElement | null>(null);
-  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-
-  const handleDragStart = useCallback((e: React.DragEvent, index: number, repo: Repository) => {
-    draggedIndexRef.current = index;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(index));
-
-    // Create styled drag image
-    const dragImage = document.createElement('div');
-    dragImage.textContent = repo.name;
-    dragImage.style.cssText = `
-        position: fixed;
-        top: -9999px;
-        left: -9999px;
-        padding: 8px 12px;
-        background-color: var(--accent);
-        color: var(--accent-foreground);
-        font-size: 14px;
-        font-weight: 500;
-        border-radius: 8px;
-        white-space: nowrap;
-        pointer-events: none;
-      `;
-    document.body.appendChild(dragImage);
-    dragImageRef.current = dragImage;
-    e.dataTransfer.setDragImage(dragImage, dragImage.offsetWidth / 2, dragImage.offsetHeight / 2);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    if (dragImageRef.current) {
-      document.body.removeChild(dragImageRef.current);
-      dragImageRef.current = null;
-    }
-    draggedIndexRef.current = null;
-    setDropTargetIndex(null);
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggedIndexRef.current !== null && draggedIndexRef.current !== index) {
-      setDropTargetIndex(index);
-    }
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setDropTargetIndex(null);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent, toIndex: number) => {
-      e.preventDefault();
-      const fromIndex = draggedIndexRef.current;
-      if (fromIndex !== null && fromIndex !== toIndex && onReorderRepositories) {
-        onReorderRepositories(fromIndex, toIndex);
-      }
-      setDropTargetIndex(null);
-    },
-    [onReorderRepositories]
-  );
-
-  const handleContextMenu = (e: React.MouseEvent, repo: Repository) => {
-    e.preventDefault();
-    setMenuPosition({ x: e.clientX, y: e.clientY });
-    setMenuRepo(repo);
-    setMenuOpen(true);
-  };
-
-  const handleRemoveClick = () => {
-    if (menuRepo) {
-      setRepoToRemove(menuRepo);
-    }
-    setMenuOpen(false);
-  };
+  const editGroupRepoCount = useMemo(() => {
+    if (!editGroupTarget) return 0;
+    const ids = getDescendantIds(editGroupTarget.id, groups);
+    return repositories.filter((r) => r.groupId && ids.includes(r.groupId)).length;
+  }, [editGroupTarget, groups, repositories]);
 
   const handleConfirmRemove = () => {
     if (repoToRemove && onRemoveRepository) {
@@ -191,23 +113,28 @@ export function RepositorySidebar({
     setRepoToRemove(null);
   };
 
-  // Filter by group and search
-  const filteredRepos = useMemo(() => {
-    let filtered = repositories;
-    if (activeGroupId !== ALL_GROUP_ID) {
-      filtered = filtered.filter((r) => r.groupId === activeGroupId);
-    }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((repo) => repo.name.toLowerCase().includes(query));
-    }
-    return filtered.map((repo) => ({ repo, originalIndex: repositories.indexOf(repo) }));
-  }, [repositories, activeGroupId, searchQuery]);
+  const handleAddGroup = useCallback((parentId?: string) => {
+    setCreateGroupParentId(parentId);
+    setCreateGroupDialogOpen(true);
+  }, []);
+
+  const handleEditGroup = useCallback((group: RepositoryGroup) => {
+    setEditGroupTarget(group);
+    setEditGroupDialogOpen(true);
+  }, []);
+
+  const handleCreateGroupSubmit = useCallback(
+    (name: string) => {
+      onCreateGroup(name, createGroupParentId);
+    },
+    [onCreateGroup, createGroupParentId]
+  );
+
+  const hasGroups = groups.length > 0;
 
   return (
     <aside className="flex h-full w-full flex-col border-r bg-background">
-      {/* Header */}
-      <div className="flex h-12 items-center justify-end gap-1 border-b px-3 drag-region">
+      <div className="drag-region flex h-12 items-center justify-end gap-1 border-b px-3">
         {onSwitchWorktreeByPath && (
           <RunningProjectsPopover
             onSelectWorktreeByPath={onSwitchWorktreeByPath}
@@ -217,7 +144,7 @@ export function RepositorySidebar({
         {onCollapse && (
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md no-drag text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground no-drag"
             onClick={onCollapse}
             title={t('Collapse')}
           >
@@ -226,18 +153,6 @@ export function RepositorySidebar({
         )}
       </div>
 
-      {/* Group Selector */}
-      <GroupSelector
-        groups={groups}
-        activeGroupId={activeGroupId}
-        repositoryCounts={repositoryCounts}
-        totalCount={repositories.length}
-        onSelectGroup={onSwitchGroup}
-        onEditGroup={() => setEditGroupDialogOpen(true)}
-        onAddGroup={() => setCreateGroupDialogOpen(true)}
-      />
-
-      {/* Search */}
       <div className="px-3 py-2">
         <div className="flex h-8 items-center gap-2 rounded-lg border bg-background px-2">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -251,19 +166,39 @@ export function RepositorySidebar({
         </div>
       </div>
 
-      {/* Repository List */}
-      <div className="flex-1 overflow-auto p-2">
-        {filteredRepos.length === 0 && searchQuery.length > 0 ? (
-          <Empty className="border-0">
-            <EmptyMedia variant="icon">
-              <Search className="h-4.5 w-4.5" />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle className="text-base">{t('No matching repositories')}</EmptyTitle>
-              <EmptyDescription>{t('Try a different search term')}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : repositories.length === 0 ? (
+      <div className="flex h-8 items-center justify-end gap-0.5 border-b px-2">
+        <button
+          type="button"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          onClick={() => handleAddGroup()}
+          title={t('New Group')}
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+        </button>
+        {hasGroups && (
+          <>
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              onClick={() => onExpandAllGroups()}
+              title={t('Expand All')}
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              onClick={() => onCollapseAllGroups()}
+              title={t('Collapse All')}
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+
+      {repositories.length === 0 && groups.length === 0 ? (
+        <div className="flex-1 overflow-auto p-2">
           <Empty className="border-0">
             <EmptyMedia variant="icon">
               <FolderGit2 className="h-4.5 w-4.5" />
@@ -279,114 +214,42 @@ export function RepositorySidebar({
               {t('Add Repository')}
             </Button>
           </Empty>
-        ) : (
-          <div className="space-y-1">
-            {filteredRepos.map(({ repo, originalIndex }) => {
-              const group = repo.groupId ? groupsById.get(repo.groupId) : undefined;
-              const tagBg = group ? hexToRgba(group.color, 0.12) : null;
-              const tagBorder = group ? hexToRgba(group.color, 0.35) : null;
+        </div>
+      ) : (
+        <GroupTree
+          groups={groups}
+          repositories={repositories}
+          selectedRepo={selectedRepo}
+          expandedIds={expandedGroupIds}
+          onToggleExpand={onToggleGroupExpand}
+          onSelectRepo={onSelectRepo}
+          onDeleteGroup={onDeleteGroup}
+          onMoveToGroup={onMoveToGroup}
+          onMoveGroup={onMoveGroup}
+          onReorderRepo={onReorderRepo}
+          onRemoveRepository={
+            onRemoveRepository
+              ? (path) => {
+                  const repo = repositories.find((r) => r.path === path);
+                  if (repo) setRepoToRemove(repo);
+                }
+              : undefined
+          }
+          onEditGroup={handleEditGroup}
+          onAddGroup={handleAddGroup}
+          onRepoSettings={(repo) => {
+            setRepoSettingsTarget(repo);
+            setRepoSettingsOpen(true);
+          }}
+          searchQuery={searchQuery}
+        />
+      )}
 
-              return (
-                <div key={repo.path} className="relative">
-                  {/* Drop indicator - top */}
-                  {dropTargetIndex === originalIndex &&
-                    draggedIndexRef.current !== null &&
-                    draggedIndexRef.current > originalIndex && (
-                      <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
-                    )}
-                  <button
-                    type="button"
-                    draggable={!searchQuery}
-                    onDragStart={(e) => handleDragStart(e, originalIndex, repo)}
-                    onDragEnd={handleDragEnd}
-                    onDragOver={(e) => handleDragOver(e, originalIndex)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, originalIndex)}
-                    onClick={() => onSelectRepo(repo.path)}
-                    onContextMenu={(e) => handleContextMenu(e, repo)}
-                    className={cn(
-                      'group flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors',
-                      selectedRepo === repo.path
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-accent/50',
-                      draggedIndexRef.current === originalIndex && 'opacity-50'
-                    )}
-                  >
-                    {/* Repo name */}
-                    <div className="flex w-full items-center gap-2">
-                      <FolderGit2
-                        className={cn(
-                          'h-4 w-4 shrink-0',
-                          selectedRepo === repo.path
-                            ? 'text-accent-foreground'
-                            : 'text-muted-foreground'
-                        )}
-                      />
-                      <span className="truncate font-medium flex-1">{repo.name}</span>
-                      <button
-                        type="button"
-                        className="shrink-0 p-1 rounded hover:bg-muted"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRepoSettingsTarget(repo);
-                          setRepoSettingsOpen(true);
-                        }}
-                        title={t('Repository Settings')}
-                      >
-                        <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
-                    </div>
-
-                    {/* Tags (Group) */}
-                    {group && (
-                      <div className="flex w-full items-center gap-1 pl-6">
-                        <span
-                          className="inline-flex h-5 max-w-full items-center gap-1 rounded-md border px-1.5 text-[10px] text-foreground/80"
-                          style={{
-                            backgroundColor: tagBg ?? undefined,
-                            borderColor: tagBorder ?? undefined,
-                            color: group.color,
-                          }}
-                        >
-                          {group.emoji && (
-                            <span className="text-[0.9em] opacity-90">{group.emoji}</span>
-                          )}
-                          <span className="truncate">{group.name}</span>
-                        </span>
-                      </div>
-                    )}
-                    {/* Path */}
-                    <div
-                      className={cn(
-                        'w-full pl-6 text-xs overflow-hidden whitespace-nowrap text-ellipsis [direction:rtl] [text-align:left]',
-                        selectedRepo === repo.path
-                          ? 'text-accent-foreground/70'
-                          : 'text-muted-foreground'
-                      )}
-                      title={repo.path}
-                    >
-                      {repo.path}
-                    </div>
-                  </button>
-                  {/* Drop indicator - bottom */}
-                  {dropTargetIndex === originalIndex &&
-                    draggedIndexRef.current !== null &&
-                    draggedIndexRef.current < originalIndex && (
-                      <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
-                    )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
       <div className="shrink-0 border-t p-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="flex h-8 flex-1 items-center justify-start gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
             onClick={onAddRepository}
           >
             <Plus className="h-4 w-4" />
@@ -394,7 +257,7 @@ export function RepositorySidebar({
           </button>
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
             onClick={onOpenSettings}
           >
             <Settings className="h-4 w-4" />
@@ -402,57 +265,10 @@ export function RepositorySidebar({
         </div>
       </div>
 
-      {/* Context Menu */}
-      {menuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setMenuOpen(false)}
-            onKeyDown={(e) => e.key === 'Escape' && setMenuOpen(false)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenuOpen(false);
-            }}
-            role="presentation"
-          />
-          <div
-            className="fixed z-50 min-w-32 rounded-lg border bg-popover p-1 shadow-lg"
-            style={{ left: menuPosition.x, top: menuPosition.y }}
-          >
-            {onMoveToGroup && groups.length > 0 && (
-              <MoveToGroupSubmenu
-                groups={groups}
-                currentGroupId={menuRepo?.groupId}
-                onMove={(groupId) => {
-                  if (menuRepo) {
-                    onMoveToGroup(menuRepo.path, groupId);
-                  }
-                }}
-                onClose={() => setMenuOpen(false)}
-              />
-            )}
-
-            {onMoveToGroup && groups.length > 0 && <div className="my-1 h-px bg-border" />}
-
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
-              onClick={handleRemoveClick}
-            >
-              <FolderMinus className="h-4 w-4" />
-              {t('Remove repository')}
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Remove confirmation dialog */}
       <AlertDialog
         open={!!repoToRemove}
         onOpenChange={(open) => {
-          if (!open) {
-            setRepoToRemove(null);
-          }
+          if (!open) setRepoToRemove(null);
         }}
       >
         <AlertDialogPopup>
@@ -462,7 +278,7 @@ export function RepositorySidebar({
               {tNode('Are you sure you want to remove {{name}} from the workspace?', {
                 name: <strong>{repoToRemove?.name}</strong>,
               })}
-              <span className="block mt-2 text-muted-foreground">
+              <span className="mt-2 block text-muted-foreground">
                 {t('This will only remove it from the app and will not delete local files.')}
               </span>
             </AlertDialogDescription>
@@ -488,14 +304,14 @@ export function RepositorySidebar({
       <CreateGroupDialog
         open={createGroupDialogOpen}
         onOpenChange={setCreateGroupDialogOpen}
-        onSubmit={onCreateGroup}
+        onSubmit={handleCreateGroupSubmit}
       />
 
       <GroupEditDialog
         open={editGroupDialogOpen}
         onOpenChange={setEditGroupDialogOpen}
-        group={activeGroup || null}
-        repositoryCount={activeGroup ? repositoryCounts[activeGroup.id] || 0 : 0}
+        group={editGroupTarget}
+        repositoryCount={editGroupRepoCount}
         onUpdate={onUpdateGroup}
         onDelete={onDeleteGroup}
       />

@@ -1,11 +1,4 @@
-import { normalizeHexColor } from '@/lib/colors';
-import {
-  ALL_GROUP_ID,
-  DEFAULT_GROUP_COLOR,
-  DEFAULT_TAB_ORDER,
-  type RepositoryGroup,
-  type TabId,
-} from './constants';
+import { ALL_GROUP_ID, DEFAULT_TAB_ORDER, type RepositoryGroup, type TabId } from './constants';
 
 // Storage keys
 export const STORAGE_KEYS = {
@@ -24,6 +17,7 @@ export const STORAGE_KEYS = {
   REPOSITORY_SETTINGS: 'enso-repository-settings', // per-repo settings (init script, etc.)
   REPOSITORY_GROUPS: 'enso-repository-groups',
   ACTIVE_GROUP: 'enso-active-group',
+  GROUP_EXPANDED: 'enso-group-expanded',
 } as const;
 
 // Helper to get initial value from localStorage
@@ -199,9 +193,8 @@ export const getStoredGroups = (): RepositoryGroup[] => {
       if (!Array.isArray(parsed)) return [];
 
       return parsed
-        .map((raw, index) => {
+        .map((raw, index): RepositoryGroup | null => {
           const group = raw as Partial<RepositoryGroup>;
-          const color = normalizeHexColor(String(group.color ?? ''), DEFAULT_GROUP_COLOR);
 
           const id = typeof group.id === 'string' && group.id ? group.id : '';
           if (!id) return null;
@@ -209,13 +202,15 @@ export const getStoredGroups = (): RepositoryGroup[] => {
           const parsedOrder = Number(group.order);
           const order = Number.isFinite(parsedOrder) ? parsedOrder : index;
 
-          return {
+          const result: RepositoryGroup = {
             id,
             name: String(group.name ?? ''),
-            emoji: typeof group.emoji === 'string' ? group.emoji : '',
             order,
-            color,
           };
+          if (typeof group.parentId === 'string') {
+            result.parentId = group.parentId;
+          }
+          return result;
         })
         .filter((g): g is RepositoryGroup => !!g);
     } catch {
@@ -235,6 +230,23 @@ export const getActiveGroupId = (): string => {
 
 export const saveActiveGroupId = (groupId: string): void => {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP, groupId);
+};
+
+export const getExpandedGroupIds = (): Set<string> => {
+  const saved = localStorage.getItem(STORAGE_KEYS.GROUP_EXPANDED);
+  if (saved) {
+    try {
+      const arr = JSON.parse(saved) as unknown;
+      if (Array.isArray(arr)) return new Set(arr.filter((x) => typeof x === 'string'));
+    } catch {
+      // ignore
+    }
+  }
+  return new Set();
+};
+
+export const saveExpandedGroupIds = (ids: Set<string>): void => {
+  localStorage.setItem(STORAGE_KEYS.GROUP_EXPANDED, JSON.stringify([...ids]));
 };
 
 export const migrateRepositoryGroups = (): void => {
