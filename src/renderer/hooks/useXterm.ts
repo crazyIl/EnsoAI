@@ -118,6 +118,8 @@ export function useXterm({
   const terminalRef = useRef<Terminal | null>(null);
   const settings = useTerminalSettings();
   const terminalRenderer = useSettingsStore((s) => s.terminalRenderer);
+  const terminalRendererRef = useRef(terminalRenderer);
+  terminalRendererRef.current = terminalRenderer;
   const shellConfig = useSettingsStore((s) => s.shellConfig);
   const navigateToFile = useNavigationStore((s) => s.navigateToFile);
   const cwdRef = useRef(cwd);
@@ -158,6 +160,7 @@ export function useXterm({
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
   const isFlushPendingRef = useRef(false);
+  const lastStreamRefreshAtRef = useRef(0);
 
   const write = useCallback((data: string) => {
     if (ptyIdRef.current) {
@@ -211,8 +214,7 @@ export function useXterm({
     terminalRef.current?.clear();
   }, []);
 
-  const refreshRenderer = useCallback(() => {
-    if (!terminalRef.current) return;
+  const clearTextureAtlas = useCallback(() => {
     const addon = rendererAddonRef.current;
     if (addon && 'clearTextureAtlas' in addon) {
       try {
@@ -221,8 +223,29 @@ export function useXterm({
         // Ignore
       }
     }
-    terminalRef.current.refresh(0, terminalRef.current.rows - 1);
   }, []);
+
+  const refreshRenderer = useCallback(() => {
+    if (!terminalRef.current) return;
+    clearTextureAtlas();
+    terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+  }, [clearTextureAtlas]);
+
+  const refreshDuringStreaming = useCallback(
+    (data: string) => {
+      if (terminalRendererRef.current !== 'webgl' || document.hidden) return;
+      if (data.length < 48 || !hasVisibleContent(data)) return;
+
+      const now = Date.now();
+      if (now - lastStreamRefreshAtRef.current < 1200) return;
+      lastStreamRefreshAtRef.current = now;
+
+      requestAnimationFrame(() => {
+        refreshRenderer();
+      });
+    },
+    [refreshRenderer]
+  );
 
   const loadRenderer = useCallback((terminal: Terminal, renderer: typeof terminalRenderer) => {
     // Dispose current renderer addon
@@ -525,6 +548,7 @@ export function useXterm({
                 }
                 // Call onData after write to avoid React re-render storm
                 onDataRef.current?.(bufferedData);
+                refreshDuringStreaming(bufferedData);
                 writeBufferRef.current = '';
               }
               isFlushPendingRef.current = false;
@@ -567,7 +591,7 @@ export function useXterm({
       terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
       terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
     }
-  }, [cwd, command, shellConfig, commandKey, terminalRenderer]);
+  }, [cwd, command, shellConfig, commandKey, terminalRenderer, refreshDuringStreaming]);
 
   useEffect(() => {
     const shouldActivate = isActive || initialCommandRef.current;
@@ -614,9 +638,10 @@ export function useXterm({
       terminalRef.current.options.fontFamily = settings.fontFamily;
       terminalRef.current.options.fontWeight = settings.fontWeight;
       terminalRef.current.options.fontWeightBold = settings.fontWeightBold;
-      fitAddonRef.current?.fit();
+      fit();
+      refreshRenderer();
     }
-  }, [settings]);
+  }, [settings, fit, refreshRenderer]);
 
   // Handle resize
   useEffect(() => {
@@ -627,15 +652,8 @@ export function useXterm({
           cols: terminalRef.current.cols,
           rows: terminalRef.current.rows,
         });
-        // Clear WebGL texture atlas on resize to prevent glitches
-        const addon = rendererAddonRef.current;
-        if (addon && 'clearTextureAtlas' in addon) {
-          try {
-            (addon as WebglAddon).clearTextureAtlas();
-          } catch {
-            // Ignore if addon is disposed
-          }
-        }
+        clearTextureAtlas();
+        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
       }
     };
 
@@ -668,60 +686,57 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, []);
+  }, [clearTextureAtlas]);
 
-  // Fit and focus when becoming active (only after loading completes)
+  // Re-activate with an explicit refresh cycle.
+  // Hidden -> visible tab switches can leave the WebGL atlas in a stale state even if size did not change.
   useEffect(() => {
     if (isActive && terminalRef.current && !isLoading) {
       requestAnimationFrame(() => {
         fit();
-        terminalRef.current?.focus();
+        refreshRenderer();
+        requestAnimationFrame(() => {
+          fit();
+          refreshRenderer();
+          terminalRef.current?.focus();
+        });
       });
     }
-  }, [isActive, isLoading, fit]);
+  }, [isActive, isLoading, fit, refreshRenderer]);
 
   // Handle window visibility change to refresh terminal rendering
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && terminalRef.current) {
         requestAnimationFrame(() => {
-          // Clear WebGL texture atlas when page becomes visible (GPU resources may have been reclaimed)
-          const addon = rendererAddonRef.current;
-          if (addon && 'clearTextureAtlas' in addon) {
-            try {
-              (addon as WebglAddon).clearTextureAtlas();
-            } catch {
-              // Ignore if addon is disposed
-            }
-          }
-          terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
             fit();
           }
+          refreshRenderer();
         });
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isActive, fit]);
+  }, [isActive, fit, refreshRenderer]);
 
   // Handle app focus/blur events (macOS app switching)
   useEffect(() => {
     const handleFocus = () => {
       if (terminalRef.current) {
         requestAnimationFrame(() => {
-          terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
           if (isActive) {
             fit();
           }
+          refreshRenderer();
         });
       }
     };
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [isActive, fit]);
+  }, [isActive, fit, refreshRenderer]);
 
   // Silent Reset: Proactively clear texture atlas every 30 mins to prevent long-term fragmentation
   useEffect(() => {
@@ -739,7 +754,7 @@ export function useXterm({
         ) {
           requestAnimationFrame(() => {
             try {
-              (addon as WebglAddon).clearTextureAtlas();
+              clearTextureAtlas();
               terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
             } catch {
               // Ignore errors if addon is disposed or method missing
@@ -751,7 +766,7 @@ export function useXterm({
     ); // 30 minutes
 
     return () => clearInterval(preventGlitchInterval);
-  }, [isActive, terminalRenderer]);
+  }, [isActive, terminalRenderer, clearTextureAtlas]);
 
   return {
     containerRef,
