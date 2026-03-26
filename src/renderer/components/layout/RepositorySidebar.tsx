@@ -1,6 +1,7 @@
 import {
   ChevronsDownUp,
   ChevronsUpDown,
+  Crosshair,
   FolderGit2,
   FolderPlus,
   PanelLeftClose,
@@ -8,8 +9,13 @@ import {
   Search,
   Settings,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
-import { getDescendantIds, type RepositoryGroup, type TabId } from '@/App/constants';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  getAncestorIds,
+  getDescendantIds,
+  type RepositoryGroup,
+  type TabId,
+} from '@/App/constants';
 import { CreateGroupDialog, GroupEditDialog, GroupTree } from '@/components/group';
 import { RepositorySettingsDialog } from '@/components/repository/RepositorySettingsDialog';
 import {
@@ -91,6 +97,7 @@ export function RepositorySidebar({
   onSwitchWorktreeByPath,
 }: RepositorySidebarProps) {
   const { t, tNode } = useI18n();
+  const treeContainerRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [repoToRemove, setRepoToRemove] = useState<Repository | null>(null);
   const [repoSettingsOpen, setRepoSettingsOpen] = useState(false);
@@ -130,6 +137,30 @@ export function RepositorySidebar({
     [onCreateGroup, createGroupParentId]
   );
 
+  const handleLocateRepo = useCallback(() => {
+    if (!selectedRepo) return;
+    const repo = repositories.find((r) => r.path === selectedRepo);
+    if (!repo) return;
+
+    // 展开所有祖先分组
+    if (repo.groupId) {
+      const ancestorIds = [repo.groupId, ...getAncestorIds(repo.groupId, groups)];
+      for (const id of ancestorIds) {
+        if (!expandedGroupIds.has(id)) {
+          onToggleGroupExpand(id);
+        }
+      }
+    }
+
+    // 等待 DOM 更新后滚动到目标
+    requestAnimationFrame(() => {
+      const container = treeContainerRef.current;
+      if (!container) return;
+      const el = container.querySelector(`[data-repo-path="${CSS.escape(selectedRepo)}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [selectedRepo, repositories, groups, expandedGroupIds, onToggleGroupExpand]);
+
   const hasGroups = groups.length > 0;
 
   return (
@@ -167,6 +198,16 @@ export function RepositorySidebar({
       </div>
 
       <div className="flex h-8 items-center justify-end gap-0.5 border-b px-2">
+        {selectedRepo && (
+          <button
+            type="button"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            onClick={handleLocateRepo}
+            title={t('Locate Current Repository')}
+          >
+            <Crosshair className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
@@ -216,32 +257,34 @@ export function RepositorySidebar({
           </Empty>
         </div>
       ) : (
-        <GroupTree
-          groups={groups}
-          repositories={repositories}
-          selectedRepo={selectedRepo}
-          expandedIds={expandedGroupIds}
-          onToggleExpand={onToggleGroupExpand}
-          onSelectRepo={onSelectRepo}
-          onMoveToGroup={onMoveToGroup}
-          onMoveGroup={onMoveGroup}
-          onReorderRepo={onReorderRepo}
-          onRemoveRepository={
-            onRemoveRepository
-              ? (path) => {
-                  const repo = repositories.find((r) => r.path === path);
-                  if (repo) setRepoToRemove(repo);
-                }
-              : undefined
-          }
-          onEditGroup={handleEditGroup}
-          onAddGroup={handleAddGroup}
-          onRepoSettings={(repo) => {
-            setRepoSettingsTarget(repo);
-            setRepoSettingsOpen(true);
-          }}
-          searchQuery={searchQuery}
-        />
+        <div ref={treeContainerRef} className="flex-1 overflow-auto">
+          <GroupTree
+            groups={groups}
+            repositories={repositories}
+            selectedRepo={selectedRepo}
+            expandedIds={expandedGroupIds}
+            onToggleExpand={onToggleGroupExpand}
+            onSelectRepo={onSelectRepo}
+            onMoveToGroup={onMoveToGroup}
+            onMoveGroup={onMoveGroup}
+            onReorderRepo={onReorderRepo}
+            onRemoveRepository={
+              onRemoveRepository
+                ? (path) => {
+                    const repo = repositories.find((r) => r.path === path);
+                    if (repo) setRepoToRemove(repo);
+                  }
+                : undefined
+            }
+            onEditGroup={handleEditGroup}
+            onAddGroup={handleAddGroup}
+            onRepoSettings={(repo) => {
+              setRepoSettingsTarget(repo);
+              setRepoSettingsOpen(true);
+            }}
+            searchQuery={searchQuery}
+          />
+        </div>
       )}
 
       <div className="shrink-0 border-t p-2">

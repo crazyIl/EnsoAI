@@ -98,6 +98,17 @@ export function getDescendantIds(groupId: string, groups: RepositoryGroup[]): st
   return result;
 }
 
+/** 获取分组的所有祖先 ID（不包括自身，从近到远） */
+export function getAncestorIds(groupId: string, groups: RepositoryGroup[]): string[] {
+  const result: string[] = [];
+  let current = groups.find((g) => g.id === groupId);
+  while (current?.parentId) {
+    result.push(current.parentId);
+    current = groups.find((g) => g.id === current!.parentId);
+  }
+  return result;
+}
+
 /** 判断 targetId 是否是 groupId 的祖先 */
 export function isAncestor(groupId: string, targetId: string, groups: RepositoryGroup[]): boolean {
   let current = groups.find((g) => g.id === groupId);

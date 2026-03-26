@@ -6,6 +6,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Copy,
+  Crosshair,
   Folder,
   FolderGit2,
   FolderMinus,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  getAncestorIds,
   getDescendantIds,
   type Repository,
   type RepositoryGroup,
@@ -154,6 +156,7 @@ export function TreeSidebar({
   worktreeOrderMap,
 }: TreeSidebarProps) {
   const { t, tNode } = useI18n();
+  const treeContainerRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRepoList, setExpandedRepoList] = useState<string[]>([]);
 
@@ -167,10 +170,50 @@ export function TreeSidebar({
     const ids = getDescendantIds(editGroupTarget.id, groups);
     return repositories.filter((repo) => repo.groupId && ids.includes(repo.groupId)).length;
   }, [editGroupTarget, groups, repositories]);
+
   const hasGroups = groups.length > 0;
 
   // Convert list to set for fast lookups
   const expandedRepos = useMemo(() => new Set(expandedRepoList), [expandedRepoList]);
+
+  const handleLocateWorktree = useCallback(() => {
+    if (!selectedRepo || !activeWorktree) return;
+    const repo = repositories.find((r) => r.path === selectedRepo);
+    if (!repo) return;
+
+    // 展开所有祖先分组
+    if (repo.groupId) {
+      const ancestorIds = [repo.groupId, ...getAncestorIds(repo.groupId, groups)];
+      for (const id of ancestorIds) {
+        if (!expandedGroupIds.has(id)) {
+          onToggleGroupExpand(id);
+        }
+      }
+    }
+
+    // 展开仓库的 worktree 列表
+    if (!expandedRepos.has(selectedRepo)) {
+      setExpandedRepoList((prev) => [...prev, selectedRepo]);
+    }
+
+    // 等待 DOM 更新后滚动到目标 worktree
+    requestAnimationFrame(() => {
+      const container = treeContainerRef.current;
+      if (!container) return;
+      const el = container.querySelector(
+        `[data-worktree-path="${CSS.escape(activeWorktree.path)}"]`
+      );
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [
+    selectedRepo,
+    activeWorktree,
+    repositories,
+    groups,
+    expandedGroupIds,
+    onToggleGroupExpand,
+    expandedRepos,
+  ]);
 
   // Fetch worktrees for expanded repos only
   const {
@@ -698,6 +741,16 @@ export function TreeSidebar({
       </div>
 
       <div className="flex h-8 items-center justify-end gap-0.5 border-b px-2">
+        {activeWorktree && (
+          <button
+            type="button"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+            onClick={handleLocateWorktree}
+            title={t('Locate Current Worktree')}
+          >
+            <Crosshair className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
@@ -729,7 +782,7 @@ export function TreeSidebar({
       </div>
 
       {/* Tree List */}
-      <div className="flex-1 overflow-auto p-2">
+      <div ref={treeContainerRef} className="flex-1 overflow-auto p-2">
         {repositories.length === 0 && groups.length === 0 ? (
           <Empty className="border-0">
             <EmptyMedia variant="icon">
@@ -1220,7 +1273,7 @@ function WorktreeTreeItem({
 
   return (
     <>
-      <div className="relative">
+      <div className="relative" data-worktree-path={worktree.path}>
         {/* Drop indicator - top */}
         {showDropIndicator && dropDirection === 'top' && (
           <div className="pointer-events-none absolute top-0 left-2 right-2 z-10 h-0.5 rounded-full bg-primary" />

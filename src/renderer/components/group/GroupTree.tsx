@@ -403,7 +403,7 @@ export function GroupTree({
     };
 
     return (
-      <div key={repo.path} className="relative">
+      <div key={repo.path} className="relative" data-repo-path={repo.path}>
         {renderDropIndicator(repo.path, 'before', depth)}
         {renderRepoItem ? (
           renderRepoItem(repoItemProps)

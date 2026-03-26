@@ -156,6 +156,8 @@ export const zhTranslations: Record<string, string> = {
   Light: '浅色',
   'List view': '列表视图',
   'Loading...': '加载中...',
+  'Locate Current Repository': '定位到当前仓库',
+  'Locate Current Worktree': '定位到当前工作树',
   'Local branches': '本地分支',
   Look: '外观',
   'Manage Agent sessions': '设置 Agent session 管理快捷键',
