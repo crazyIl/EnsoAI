@@ -8,7 +8,6 @@ import type {
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ALL_GROUP_ID,
   generateGroupId,
   getDescendantIds,
   panelTransition,
@@ -17,7 +16,6 @@ import {
   type TabId,
 } from './App/constants';
 import {
-  getActiveGroupId,
   getExpandedGroupIds,
   getRepositorySettings,
   getStoredBoolean,
@@ -29,7 +27,6 @@ import {
   migrateRepositoryGroups,
   pathsEqual,
   STORAGE_KEYS,
-  saveActiveGroupId,
   saveExpandedGroupIds,
   saveGroups,
   saveTabOrder,
@@ -97,7 +94,6 @@ export default function App() {
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [activeWorktree, setActiveWorktree] = useState<GitWorktree | null>(null);
   const [groups, setGroups] = useState<RepositoryGroup[]>([]);
-  const [activeGroupId, setActiveGroupId] = useState<string>(ALL_GROUP_ID);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(getExpandedGroupIds);
 
   // Panel collapsed states - initialize from localStorage
@@ -259,7 +255,6 @@ export default function App() {
 
     const savedGroups = getStoredGroups();
     setGroups(savedGroups);
-    setActiveGroupId(getActiveGroupId());
 
     const validGroupIds = new Set(savedGroups.map((g) => g.id));
 
@@ -379,11 +374,6 @@ export default function App() {
       );
       saveRepositories(updatedRepos);
 
-      if (activeGroupId === groupId || idsToDelete.has(activeGroupId)) {
-        setActiveGroupId(ALL_GROUP_ID);
-        saveActiveGroupId(ALL_GROUP_ID);
-      }
-
       setExpandedGroupIds((prev) => {
         const next = new Set(prev);
         for (const id of idsToDelete) next.delete(id);
@@ -391,13 +381,8 @@ export default function App() {
         return next;
       });
     },
-    [groups, repositories, saveRepositories, activeGroupId]
+    [groups, repositories, saveRepositories]
   );
-
-  const handleSwitchGroup = useCallback((groupId: string) => {
-    setActiveGroupId(groupId);
-    saveActiveGroupId(groupId);
-  }, []);
 
   const handleMoveToGroup = useCallback(
     (repoPath: string, targetGroupId: string | null) => {
@@ -535,48 +520,26 @@ export default function App() {
     [groups]
   );
 
-  // Reorder repositories
-  const handleReorderRepositories = useCallback(
-    (fromIndex: number, toIndex: number) => {
-      const reordered = [...repositories];
-      const [moved] = reordered.splice(fromIndex, 1);
-      reordered.splice(toIndex, 0, moved);
-      saveRepositories(reordered);
-    },
-    [repositories, saveRepositories]
-  );
-
   // Reorder worktrees (update display order)
   const handleReorderWorktrees = useCallback(
-    (fromIndex: number, toIndex: number) => {
-      if (!selectedRepo) return;
+    (repoPath: string, worktreePaths: string[], fromIndex: number, toIndex: number) => {
+      if (!repoPath) return;
 
-      // Get current order for this repo
-      const currentRepoOrder = worktreeOrderMap[selectedRepo] || {};
-
-      // Sort worktrees by current display order to get the visual order
-      const sortedWorktrees = [...worktrees].sort((a, b) => {
-        const orderA = currentRepoOrder[a.path] ?? Number.MAX_SAFE_INTEGER;
-        const orderB = currentRepoOrder[b.path] ?? Number.MAX_SAFE_INTEGER;
-        return orderA - orderB;
-      });
-
-      // Build new order
-      const orderedPaths = sortedWorktrees.map((wt) => wt.path);
+      const orderedPaths = [...worktreePaths];
       const [movedPath] = orderedPaths.splice(fromIndex, 1);
+      if (!movedPath) return;
       orderedPaths.splice(toIndex, 0, movedPath);
 
-      // Create new order map for this repo
       const newRepoOrder: Record<string, number> = {};
       for (let i = 0; i < orderedPaths.length; i++) {
         newRepoOrder[orderedPaths[i]] = i;
       }
 
-      const newOrderMap = { ...worktreeOrderMap, [selectedRepo]: newRepoOrder };
+      const newOrderMap = { ...worktreeOrderMap, [repoPath]: newRepoOrder };
       setWorktreeOrderMap(newOrderMap);
       saveWorktreeOrderMap(newOrderMap);
     },
-    [selectedRepo, worktrees, worktreeOrderMap]
+    [worktreeOrderMap]
   );
 
   // Reorder panel tabs
@@ -1037,7 +1000,6 @@ export default function App() {
                 onCreateWorktree={handleCreateWorktree}
                 onRemoveWorktree={handleRemoveWorktree}
                 onMergeWorktree={handleOpenMergeDialog}
-                onReorderRepositories={handleReorderRepositories}
                 onReorderWorktrees={handleReorderWorktrees}
                 onRefresh={() => {
                   refetch();
@@ -1048,14 +1010,19 @@ export default function App() {
                 collapsed={false}
                 onCollapse={() => setRepositoryCollapsed(true)}
                 groups={sortedGroups}
-                activeGroupId={activeGroupId}
-                onSwitchGroup={handleSwitchGroup}
+                expandedGroupIds={expandedGroupIds}
+                onToggleGroupExpand={handleToggleGroupExpand}
+                onExpandAllGroups={handleExpandAllGroups}
+                onCollapseAllGroups={handleCollapseAllGroups}
                 onCreateGroup={handleCreateGroup}
                 onUpdateGroup={handleUpdateGroup}
                 onDeleteGroup={handleDeleteGroup}
                 onMoveToGroup={handleMoveToGroup}
+                onMoveGroup={handleMoveGroup}
+                onReorderRepo={handleReorderRepo}
                 onSwitchTab={setActiveTab}
                 onSwitchWorktreeByPath={handleSwitchWorktreePath}
+                worktreeOrderMap={worktreeOrderMap}
               />
               {/* Resize handle */}
               <div
@@ -1123,6 +1090,7 @@ export default function App() {
                 className="relative h-full shrink-0 overflow-hidden"
               >
                 <WorktreePanel
+                  repoPath={selectedRepo}
                   worktrees={sortedWorktrees}
                   activeWorktree={activeWorktree}
                   branches={branches}
@@ -1186,7 +1154,7 @@ export default function App() {
         open={addRepoDialogOpen}
         onOpenChange={setAddRepoDialogOpen}
         groups={sortedGroups}
-        defaultGroupId={activeGroupId === ALL_GROUP_ID ? null : activeGroupId}
+        defaultGroupId={null}
         onAddLocal={handleAddLocalRepository}
         onCloneComplete={handleCloneRepository}
       />

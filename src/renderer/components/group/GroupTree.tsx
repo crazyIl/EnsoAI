@@ -10,7 +10,15 @@ import {
   Settings2,
   SquareKanban,
 } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   buildGroupTree,
   type GroupTreeNode,
@@ -20,6 +28,7 @@ import {
   MAX_GROUP_DEPTH,
   type RepositoryGroup,
 } from '@/App/constants';
+import { NamePathTooltip } from '@/components/ui/name-path-tooltip';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +48,19 @@ interface DropIndicator {
   position: 'before' | 'after' | 'inside';
 }
 
+export interface GroupTreeRepoRenderProps {
+  repo: Repository;
+  depth: number;
+  isSelected: boolean;
+  draggable: boolean;
+  onDragStart: (e: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  onDragOver: (e: DragEvent<HTMLElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (e: DragEvent<HTMLElement>) => void;
+  onContextMenu: (e: MouseEvent<HTMLElement>) => void;
+}
+
 export interface GroupTreeProps {
   groups: RepositoryGroup[];
   repositories: Repository[];
@@ -46,7 +68,6 @@ export interface GroupTreeProps {
   expandedIds: Set<string>;
   onToggleExpand: (groupId: string) => void;
   onSelectRepo: (repoPath: string) => void;
-  onDeleteGroup: (groupId: string) => void;
   onMoveToGroup: (repoPath: string, groupId: string | null) => void;
   onMoveGroup: (groupId: string, targetParentId: string | null, order: number) => void;
   onReorderRepo: (
@@ -60,6 +81,9 @@ export interface GroupTreeProps {
   onAddGroup: (parentId?: string) => void;
   onRepoSettings?: (repo: Repository) => void;
   searchQuery?: string;
+  repoMatchesSearch?: (repo: Repository) => boolean;
+  onRepoContextMenu?: (e: MouseEvent<HTMLElement>, repo: Repository) => void;
+  renderRepoItem?: (props: GroupTreeRepoRenderProps) => ReactNode;
 }
 
 const INDENT_PX = 16;
@@ -80,6 +104,9 @@ export function GroupTree({
   onAddGroup,
   onRepoSettings,
   searchQuery,
+  repoMatchesSearch,
+  onRepoContextMenu,
+  renderRepoItem,
 }: GroupTreeProps) {
   const { t } = useI18n();
 
@@ -120,15 +147,23 @@ export function GroupTree({
     [searchQuery]
   );
 
+  const matchesRepo = useCallback(
+    (repo: Repository) => {
+      if (repoMatchesSearch) return repoMatchesSearch(repo);
+      return matchesSearch(repo.name);
+    },
+    [matchesSearch, repoMatchesSearch]
+  );
+
   const groupHasMatch = useCallback(
     (node: GroupTreeNode): boolean => {
       if (!searchQuery) return true;
       const repos = reposByGroup.get(node.id) || [];
-      if (repos.some((r) => matchesSearch(r.name))) return true;
+      if (repos.some((repo) => matchesRepo(repo))) return true;
       if (matchesSearch(node.name)) return true;
       return node.children.some((child) => groupHasMatch(child));
     },
-    [searchQuery, reposByGroup, matchesSearch]
+    [matchesRepo, matchesSearch, reposByGroup, searchQuery]
   );
 
   const handleDragStart = useCallback((e: React.DragEvent, data: DragData, label: string) => {
@@ -165,12 +200,24 @@ export function GroupTree({
       const drag = dragDataRef.current;
       if (!drag) return;
 
+      if (drag.type === 'repo') {
+        e.dataTransfer.dropEffect = 'move';
+        setDropIndicator({ targetId: groupId, position: 'inside' });
+        return;
+      }
+
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const y = e.clientY - rect.top;
       const h = rect.height;
 
-      if (drag.type === 'group' && drag.id === groupId) return;
-      if (drag.type === 'group' && isAncestor(groupId, drag.id, groups)) return;
+      if (drag.type === 'group' && drag.id === groupId) {
+        setDropIndicator(null);
+        return;
+      }
+      if (drag.type === 'group' && isAncestor(groupId, drag.id, groups)) {
+        setDropIndicator(null);
+        return;
+      }
 
       if (y < h * 0.25) {
         e.dataTransfer.dropEffect = 'move';
@@ -182,7 +229,10 @@ export function GroupTree({
         const targetDepth = depth;
         if (drag.type === 'group') {
           const dragMaxDepth = getMaxSubtreeDepth(drag.id, groups);
-          if (targetDepth + 1 + dragMaxDepth > MAX_GROUP_DEPTH) return;
+          if (targetDepth + 1 + dragMaxDepth > MAX_GROUP_DEPTH) {
+            setDropIndicator(null);
+            return;
+          }
         }
         e.dataTransfer.dropEffect = 'move';
         setDropIndicator({ targetId: groupId, position: 'inside' });
@@ -195,9 +245,18 @@ export function GroupTree({
     e.preventDefault();
     e.stopPropagation();
     const drag = dragDataRef.current;
-    if (!drag) return;
-    if (drag.type === 'group') return;
-    if (drag.type === 'repo' && drag.id === repoPath) return;
+    if (!drag) {
+      setDropIndicator(null);
+      return;
+    }
+    if (drag.type === 'group') {
+      setDropIndicator(null);
+      return;
+    }
+    if (drag.type === 'repo' && drag.id === repoPath) {
+      setDropIndicator(null);
+      return;
+    }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const y = e.clientY - rect.top;
@@ -322,55 +381,79 @@ export function GroupTree({
 
   const renderRepoNode = (repo: Repository, depth: number) => {
     const isSelected = selectedRepo === repo.path;
+    const repoItemProps: GroupTreeRepoRenderProps = {
+      repo,
+      depth,
+      isSelected,
+      draggable: !searchQuery,
+      onDragStart: (e) => handleDragStart(e, { type: 'repo', id: repo.path }, repo.name),
+      onDragEnd: handleDragEnd,
+      onDragOver: (e) => handleRepoDragOver(e, repo.path),
+      onDragLeave: () => setDropIndicator(null),
+      onDrop: handleDrop,
+      onContextMenu: (e) => {
+        if (onRepoContextMenu) {
+          onRepoContextMenu(e, repo);
+          return;
+        }
+        handleContextMenu(e, 'repo', repo);
+      },
+    };
 
     return (
       <div key={repo.path} className="relative">
         {renderDropIndicator(repo.path, 'before', depth)}
-        <div
-          draggable={!searchQuery}
-          onDragStart={(e) => handleDragStart(e, { type: 'repo', id: repo.path }, repo.name)}
-          onDragEnd={handleDragEnd}
-          onDragOver={(e) => handleRepoDragOver(e, repo.path)}
-          onDragLeave={() => setDropIndicator(null)}
-          onDrop={handleDrop}
-          onClick={() => onSelectRepo(repo.path)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onSelectRepo(repo.path);
-            }
-          }}
-          onContextMenu={(e) => handleContextMenu(e, 'repo', repo)}
-          role="button"
-          tabIndex={0}
-          className={cn(
-            'group/repo flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors',
-            isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
-          )}
-          style={{ paddingLeft: depth * INDENT_PX + 4 }}
-        >
-          <span className="w-4 shrink-0" />
-          <SquareKanban
-            className={cn(
-              'h-3.5 w-3.5 shrink-0',
-              isSelected ? 'text-accent-foreground' : 'text-sky-500'
-            )}
-          />
-          <span className="min-w-0 flex-1 truncate">{repo.name}</span>
-          {onRepoSettings && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRepoSettings(repo);
+        {renderRepoItem ? (
+          renderRepoItem(repoItemProps)
+        ) : (
+          <NamePathTooltip name={repo.name} path={repo.path}>
+            <div
+              draggable={repoItemProps.draggable}
+              onDragStart={repoItemProps.onDragStart}
+              onDragEnd={repoItemProps.onDragEnd}
+              onDragOver={repoItemProps.onDragOver}
+              onDragLeave={repoItemProps.onDragLeave}
+              onDrop={repoItemProps.onDrop}
+              onClick={() => onSelectRepo(repo.path)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectRepo(repo.path);
+                }
               }}
-              className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/repo:opacity-100"
-              title={t('Repository Settings')}
+              onContextMenu={repoItemProps.onContextMenu}
+              role="button"
+              tabIndex={0}
+              className={cn(
+                'group/repo flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors',
+                isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+              )}
+              style={{ paddingLeft: depth * INDENT_PX + 4 }}
             >
-              <Settings2 className="h-3 w-3" />
-            </button>
-          )}
-        </div>
+              <span className="w-4 shrink-0" />
+              <SquareKanban
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0',
+                  isSelected ? 'text-accent-foreground' : 'text-sky-500'
+                )}
+              />
+              <span className="min-w-0 flex-1 truncate">{repo.name}</span>
+              {onRepoSettings && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRepoSettings(repo);
+                  }}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/repo:opacity-100"
+                  title={t('Repository Settings')}
+                >
+                  <Settings2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </NamePathTooltip>
+        )}
         {renderDropIndicator(repo.path, 'after', depth)}
       </div>
     );
@@ -459,7 +542,7 @@ export function GroupTree({
           <div>
             {node.children.map((child) => renderGroupNode(child))}
             {repos
-              .filter((r) => matchesSearch(r.name))
+              .filter((repo) => matchesRepo(repo))
               .map((repo) => renderRepoNode(repo, node.depth + 1))}
           </div>
         )}
@@ -467,8 +550,8 @@ export function GroupTree({
     );
   };
 
-  const ungroupedRepos = (reposByGroup.get('__ungrouped__') || []).filter((r) =>
-    matchesSearch(r.name)
+  const ungroupedRepos = (reposByGroup.get('__ungrouped__') || []).filter((repo) =>
+    matchesRepo(repo)
   );
 
   return (

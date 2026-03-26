@@ -223,7 +223,6 @@ export function RepositorySidebar({
           expandedIds={expandedGroupIds}
           onToggleExpand={onToggleGroupExpand}
           onSelectRepo={onSelectRepo}
-          onDeleteGroup={onDeleteGroup}
           onMoveToGroup={onMoveToGroup}
           onMoveGroup={onMoveGroup}
           onReorderRepo={onReorderRepo}

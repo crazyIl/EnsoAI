@@ -31,6 +31,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
+import { NamePathTooltip } from '@/components/ui/name-path-tooltip';
 import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { useI18n } from '@/i18n';
@@ -38,6 +39,7 @@ import { cn } from '@/lib/utils';
 import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
 interface WorktreePanelProps {
+  repoPath: string | null;
   worktrees: GitWorktree[];
   activeWorktree: GitWorktree | null;
   branches: GitBranchType[];
@@ -52,7 +54,12 @@ interface WorktreePanelProps {
     options?: { deleteBranch?: boolean; force?: boolean }
   ) => Promise<void>;
   onMergeWorktree?: (worktree: GitWorktree) => void;
-  onReorderWorktrees?: (fromIndex: number, toIndex: number) => void;
+  onReorderWorktrees?: (
+    repoPath: string,
+    worktreePaths: string[],
+    fromIndex: number,
+    toIndex: number
+  ) => void;
   onRefresh: () => void;
   onInitGit?: () => Promise<void>;
   width?: number;
@@ -63,6 +70,7 @@ interface WorktreePanelProps {
 }
 
 export function WorktreePanel({
+  repoPath,
   worktrees,
   activeWorktree,
   branches,
@@ -149,12 +157,17 @@ export function WorktreePanel({
     (e: React.DragEvent, toIndex: number) => {
       e.preventDefault();
       const fromIndex = draggedIndexRef.current;
-      if (fromIndex !== null && fromIndex !== toIndex && onReorderWorktrees) {
-        onReorderWorktrees(fromIndex, toIndex);
+      if (repoPath && fromIndex !== null && fromIndex !== toIndex && onReorderWorktrees) {
+        onReorderWorktrees(
+          repoPath,
+          worktrees.map((worktree) => worktree.path),
+          fromIndex,
+          toIndex
+        );
       }
       setDropTargetIndex(null);
     },
-    [onReorderWorktrees]
+    [onReorderWorktrees, repoPath, worktrees]
   );
 
   // Keep track of original indices for drag reorder when filtering
@@ -601,97 +614,94 @@ function WorktreeItem({
         {showDropIndicator && dropDirection === 'top' && (
           <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
         )}
-        <button
-          type="button"
-          draggable={draggable}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          onClick={onClick}
-          onContextMenu={handleContextMenu}
-          className={cn(
-            'flex w-full flex-col items-start gap-1 rounded-lg p-3 text-left transition-colors',
-            isPrunable && 'opacity-50',
-            isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
-          )}
-        >
-          {/* Branch name */}
-          <div className="flex w-full items-center gap-2">
-            <GitBranch
-              className={cn(
-                'h-4 w-4 shrink-0',
-                isPrunable
-                  ? 'text-destructive'
-                  : isActive
-                    ? 'text-accent-foreground'
-                    : 'text-muted-foreground'
-              )}
-            />
-            <span className={cn('truncate font-medium', isPrunable && 'line-through')}>
-              {branchDisplay}
-            </span>
-            {isPrunable ? (
-              <span className="shrink-0 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
-                {t('Deleted')}
-              </span>
-            ) : isMain ? (
-              <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-                {t('Main')}
-              </span>
-            ) : null}
-            {/* Activity indicator - green dot */}
-            {hasActivity && (
-              <span
-                className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
-                title={t('Active sessions')}
-              />
-            )}
-          </div>
-
-          {/* Path - use rtl direction to show ellipsis at start, keeping end visible */}
-          <div
+        <NamePathTooltip name={branchDisplay} path={worktree.path}>
+          <button
+            type="button"
+            draggable={draggable}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onClick={onClick}
+            onContextMenu={handleContextMenu}
             className={cn(
-              'w-full overflow-hidden whitespace-nowrap text-ellipsis pl-6 text-xs [direction:rtl] [text-align:left] [unicode-bidi:plaintext]',
-              isPrunable && 'line-through',
-              isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
+              'flex w-full flex-col items-start gap-1 rounded-md px-2 py-2 text-left transition-colors',
+              isPrunable && 'opacity-50',
+              isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
             )}
-            title={worktree.path}
           >
-            {worktree.path}
-          </div>
-
-          {/* Activity counts and diff stats (only shown when has active sessions) */}
-          {hasActivity && (
-            <div className="flex items-center gap-3 pl-6 text-xs text-muted-foreground">
-              {activity.agentCount > 0 && (
-                <span className="flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" />
-                  {activity.agentCount}
+            <div className="flex w-full items-center gap-2">
+              <GitBranch
+                className={cn(
+                  'h-4 w-4 shrink-0',
+                  isPrunable
+                    ? 'text-destructive'
+                    : isActive
+                      ? 'text-accent-foreground'
+                      : 'text-muted-foreground'
+                )}
+              />
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate text-sm font-medium',
+                  isPrunable && 'line-through'
+                )}
+              >
+                {branchDisplay}
+              </span>
+              {isPrunable ? (
+                <span className="shrink-0 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
+                  {t('Deleted')}
                 </span>
-              )}
-              {activity.terminalCount > 0 && (
-                <span className="flex items-center gap-1">
-                  <Terminal className="h-3 w-3" />
-                  {activity.terminalCount}
+              ) : isMain ? (
+                <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
+                  {t('Main')}
                 </span>
-              )}
-              {hasDiffStats && (
-                <span className="flex items-center gap-1.5">
-                  {diffStats.insertions > 0 && (
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      +{diffStats.insertions}
-                    </span>
-                  )}
-                  {diffStats.deletions > 0 && (
-                    <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
-                  )}
-                </span>
+              ) : null}
+              {hasActivity && (
+                <span
+                  className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
+                  title={t('Active sessions')}
+                />
               )}
             </div>
-          )}
-        </button>
+
+            {hasActivity && (
+              <div
+                className={cn(
+                  'flex items-center gap-3 pl-6 text-xs',
+                  isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
+                )}
+              >
+                {activity.agentCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    {activity.agentCount}
+                  </span>
+                )}
+                {activity.terminalCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Terminal className="h-3 w-3" />
+                    {activity.terminalCount}
+                  </span>
+                )}
+                {hasDiffStats && (
+                  <span className="flex items-center gap-1.5">
+                    {diffStats.insertions > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        +{diffStats.insertions}
+                      </span>
+                    )}
+                    {diffStats.deletions > 0 && (
+                      <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+          </button>
+        </NamePathTooltip>
         {/* Drop indicator - bottom */}
         {showDropIndicator && dropDirection === 'bottom' && (
           <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
@@ -851,12 +861,11 @@ function WorktreeItem({
 
 function WorktreeItemSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="rounded-md border bg-card px-2 py-2">
       <div className="flex items-center gap-2">
         <div className="h-4 w-4 animate-pulse rounded bg-muted" />
         <div className="h-4 w-24 animate-pulse rounded bg-muted" />
       </div>
-      <div className="mt-2 h-3 w-48 animate-pulse rounded bg-muted" />
       <div className="mt-2 h-3 w-32 animate-pulse rounded bg-muted" />
     </div>
   );
