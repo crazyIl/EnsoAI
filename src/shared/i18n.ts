@@ -77,6 +77,8 @@ export const zhTranslations: Record<string, string> = {
   Copy: '复制',
   'Copy Path': '复制路径',
   'Copy Branch Name': '复制分支名称',
+  'Copy Repository Name': '复制仓库名称',
+  'Repository name copied to clipboard': '仓库名称已复制到剪贴板',
   'Path copied to clipboard': '路径已复制到剪贴板',
   'Branch name copied to clipboard': '分支名称已复制到剪贴板',
   Color: '颜色',

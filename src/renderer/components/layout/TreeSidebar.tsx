@@ -867,6 +867,49 @@ export function TreeSidebar({
               {t('Repository Settings')}
             </button>
 
+            {/* Open Folder */}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+              onClick={() => {
+                setRepoMenuOpen(false);
+                if (repoMenuTarget) {
+                  window.electronAPI.shell.openPath(repoMenuTarget.path);
+                }
+              }}
+            >
+              <FolderOpen className="h-4 w-4" />
+              {t('Open folder')}
+            </button>
+
+            {/* Copy Repository Name */}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+              onClick={async () => {
+                setRepoMenuOpen(false);
+                if (!repoMenuTarget) return;
+                try {
+                  await navigator.clipboard.writeText(repoMenuTarget.name);
+                  toastManager.add({
+                    title: t('Copied'),
+                    description: t('Repository name copied to clipboard'),
+                    type: 'success',
+                    timeout: 2000,
+                  });
+                } catch {
+                  toastManager.add({
+                    title: t('Failed to copy content'),
+                    type: 'error',
+                    timeout: 2000,
+                  });
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              {t('Copy Repository Name')}
+            </button>
+
             {onMoveToGroup && groups.length > 0 && (
               <MoveToGroupSubmenu
                 groups={groups}

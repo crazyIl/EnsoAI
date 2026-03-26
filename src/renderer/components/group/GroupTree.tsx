@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   Folder,
   FolderMinus,
   FolderOpen,
@@ -29,6 +30,7 @@ import {
   type RepositoryGroup,
 } from '@/App/constants';
 import { NamePathTooltip } from '@/components/ui/name-path-tooltip';
+import { toastManager } from '@/components/ui/toast';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 
@@ -760,6 +762,44 @@ function RepoContextMenu({
           ))}
         </div>
       </div>
+
+      {/* Open Folder */}
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+        onClick={() => {
+          window.electronAPI.shell.openPath(repo.path);
+        }}
+      >
+        <FolderOpen className="h-4 w-4" />
+        {t('Open folder')}
+      </button>
+
+      {/* Copy Repository Name */}
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(repo.name);
+            toastManager.add({
+              title: t('Copied'),
+              description: t('Repository name copied to clipboard'),
+              type: 'success',
+              timeout: 2000,
+            });
+          } catch {
+            toastManager.add({
+              title: t('Failed to copy content'),
+              type: 'error',
+              timeout: 2000,
+            });
+          }
+        }}
+      >
+        <Copy className="h-4 w-4" />
+        {t('Copy Repository Name')}
+      </button>
 
       {onSettings && (
         <button
