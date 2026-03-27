@@ -1,6 +1,7 @@
-import { Check, ChevronRight, FolderSymlink } from 'lucide-react';
-import type { RepositoryGroup } from '@/App/constants';
+import { ChevronRight, Folder, FolderSymlink } from 'lucide-react';
+import { buildGroupTree, type GroupTreeNode, type RepositoryGroup } from '@/App/constants';
 import { useI18n } from '@/i18n';
+import { cn } from '@/lib/utils';
 
 interface MoveToGroupSubmenuProps {
   groups: RepositoryGroup[];
@@ -19,6 +20,8 @@ export function MoveToGroupSubmenu({
 
   if (groups.length === 0) return null;
 
+  const tree = buildGroupTree(groups);
+
   return (
     <div className="relative group/submenu">
       <button
@@ -29,7 +32,7 @@ export function MoveToGroupSubmenu({
         {t('Move to Group')}
         <ChevronRight className="ml-auto h-3.5 w-3.5" />
       </button>
-      <div className="absolute left-full top-0 z-50 min-w-36 rounded-lg border bg-popover p-1 shadow-lg opacity-0 invisible group-hover/submenu:opacity-100 group-hover/submenu:visible transition-all">
+      <div className="invisible absolute left-full top-0 z-50 min-w-36 rounded-lg border bg-popover p-1 opacity-0 shadow-lg transition-all group-hover/submenu:visible group-hover/submenu:opacity-100">
         <button
           type="button"
           className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
@@ -38,29 +41,62 @@ export function MoveToGroupSubmenu({
             onMove(null);
           }}
         >
-          <span className="w-4 h-4 flex items-center justify-center">
-            {!currentGroupId && <Check className="h-3.5 w-3.5" />}
-          </span>
           <span className="text-muted-foreground">{t('No Group')}</span>
         </button>
-        <div className="my-1 h-px bg-border" />
-        {groups.map((group) => (
-          <button
-            key={group.id}
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-            onClick={() => {
+        {tree.length > 0 && <div className="my-1 h-px bg-border" />}
+        {tree.map((node) => (
+          <MoveToGroupMenuItem
+            key={node.id}
+            node={node}
+            currentGroupId={currentGroupId}
+            onSelect={(groupId) => {
               onClose();
-              onMove(group.id);
+              onMove(groupId);
             }}
-          >
-            <span className="w-4 h-4 flex items-center justify-center">
-              {currentGroupId === group.id && <Check className="h-3.5 w-3.5" />}
-            </span>
-            <span className="truncate">{group.name}</span>
-          </button>
+            depth={0}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+function MoveToGroupMenuItem({
+  node,
+  currentGroupId,
+  onSelect,
+  depth,
+}: {
+  node: GroupTreeNode;
+  currentGroupId?: string;
+  onSelect: (groupId: string) => void;
+  depth: number;
+}) {
+  const isCurrent = currentGroupId === node.id;
+
+  return (
+    <>
+      <button
+        type="button"
+        className={cn(
+          'flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-sm hover:bg-accent',
+          isCurrent && 'font-medium text-primary'
+        )}
+        style={{ paddingLeft: depth * 12 + 8 }}
+        onClick={() => onSelect(node.id)}
+      >
+        <Folder className="h-3.5 w-3.5 text-amber-500" />
+        <span className="truncate">{node.name}</span>
+      </button>
+      {node.children.map((child) => (
+        <MoveToGroupMenuItem
+          key={child.id}
+          node={child}
+          currentGroupId={currentGroupId}
+          onSelect={onSelect}
+          depth={depth + 1}
+        />
+      ))}
+    </>
   );
 }

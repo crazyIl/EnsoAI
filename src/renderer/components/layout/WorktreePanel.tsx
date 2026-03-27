@@ -1,28 +1,6 @@
 import type { GitBranch as GitBranchType, GitWorktree, WorktreeCreateOptions } from '@shared/types';
-import {
-  Copy,
-  FolderOpen,
-  GitBranch,
-  GitMerge,
-  PanelLeftClose,
-  Plus,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Terminal,
-  Trash2,
-  X,
-} from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { FolderOpen, GitBranch, PanelLeftClose, Plus, RefreshCw, Search } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -31,12 +9,12 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { NamePathTooltip } from '@/components/ui/name-path-tooltip';
-import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
+import { WorktreeDeleteDialog } from '@/components/worktree/WorktreeDeleteDialog';
+import { WorktreeItemView } from '@/components/worktree/WorktreeItemView';
+import { useWorktreeDiffStats } from '@/hooks/useWorktreeDiffStats';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { useWorktreeActivityStore } from '@/stores/worktreeActivity';
 
 interface WorktreePanelProps {
   repoPath: string | null;
@@ -91,12 +69,9 @@ export function WorktreePanel({
   repositoryCollapsed = false,
   onExpandRepository,
 }: WorktreePanelProps) {
-  const { t, tNode } = useI18n();
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [worktreeToDelete, setWorktreeToDelete] = useState<GitWorktree | null>(null);
-  const [deleteBranch, setDeleteBranch] = useState(false);
-  const [forceDelete, setForceDelete] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Drag reorder
   const draggedIndexRef = useRef<number | null>(null);
@@ -109,7 +84,6 @@ export function WorktreePanel({
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(index));
 
-      // Create styled drag image
       const dragImage = document.createElement('div');
       dragImage.textContent = worktree.branch || worktree.path.split(/[\\/]/).pop() || '';
       dragImage.style.cssText = `
@@ -183,30 +157,7 @@ export function WorktreePanel({
   const mainWorktree = worktrees.find((wt) => wt.isMainWorktree);
   const workdir = mainWorktree?.path || '';
 
-  const fetchDiffStats = useWorktreeActivityStore((s) => s.fetchDiffStats);
-  const activities = useWorktreeActivityStore((s) => s.activities);
-
-  // Fetch diff stats only for worktrees with active sessions, periodically (every 10 seconds)
-  useEffect(() => {
-    if (worktrees.length === 0) return;
-    // Only fetch for worktrees that have active agent or terminal sessions
-    const activePaths = worktrees
-      .filter((wt) => {
-        const activity = activities[wt.path];
-        return activity && (activity.agentCount > 0 || activity.terminalCount > 0);
-      })
-      .map((wt) => wt.path);
-
-    if (activePaths.length === 0) return;
-
-    // Initial fetch
-    fetchDiffStats(activePaths);
-    // Periodic refresh
-    const interval = setInterval(() => {
-      fetchDiffStats(activePaths);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [worktrees, activities, fetchDiffStats]);
+  useWorktreeDiffStats(worktrees);
 
   return (
     <aside className="flex h-full w-full flex-col border-r bg-background">
@@ -347,10 +298,11 @@ export function WorktreePanel({
         ) : (
           <div className="space-y-1">
             {filteredWorktreesWithIndex.map(({ worktree, originalIndex }) => (
-              <WorktreeItem
+              <WorktreeItemView
                 key={worktree.path}
                 worktree={worktree}
                 isActive={activeWorktree?.path === worktree.path}
+                variant="panel"
                 onClick={() => onSelectWorktree(worktree)}
                 onDelete={() => setWorktreeToDelete(worktree)}
                 onMerge={onMergeWorktree ? () => onMergeWorktree(worktree) : undefined}
@@ -374,488 +326,14 @@ export function WorktreePanel({
         )}
       </div>
 
-      {/* Delete confirmation dialog */}
-      <AlertDialog
-        open={!!worktreeToDelete}
+      <WorktreeDeleteDialog
+        worktree={worktreeToDelete}
         onOpenChange={(open) => {
-          if (!open) {
-            setWorktreeToDelete(null);
-            setDeleteBranch(false);
-          }
+          if (!open) setWorktreeToDelete(null);
         }}
-      >
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Delete Worktree')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {tNode('Are you sure you want to delete worktree {{name}}?', {
-                name: <strong>{worktreeToDelete?.branch}</strong>,
-              })}
-              {worktreeToDelete?.prunable ? (
-                <span className="block mt-2 text-muted-foreground">
-                  {t('This directory has already been removed; Git records will be cleaned up.')}
-                </span>
-              ) : (
-                <span className="block mt-2 text-destructive">
-                  {t(
-                    'This will delete the directory and all files inside. This action cannot be undone!'
-                  )}
-                </span>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-1">
-            {worktreeToDelete?.branch && !worktreeToDelete?.isMainWorktree && (
-              <label className="flex items-center gap-2 px-6 py-2 text-sm cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={deleteBranch}
-                  onChange={(e) => setDeleteBranch(e.target.checked)}
-                  className="h-4 w-4 rounded border-input"
-                />
-                <span>
-                  {tNode('Also delete branch {{name}}', {
-                    name: <strong>{worktreeToDelete.branch}</strong>,
-                  })}
-                </span>
-              </label>
-            )}
-            {!worktreeToDelete?.prunable && (
-              <label className="flex items-center gap-2 px-6 py-2 text-sm cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={forceDelete}
-                  onChange={(e) => setForceDelete(e.target.checked)}
-                  className="h-4 w-4 rounded border-input"
-                />
-                <span className="text-muted-foreground">
-                  {t('Force delete (ignore uncommitted changes)')}
-                </span>
-              </label>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" disabled={isDeleting}>
-                  {t('Cancel')}
-                </Button>
-              }
-            />
-            <Button
-              variant="destructive"
-              disabled={isDeleting}
-              onClick={async () => {
-                if (worktreeToDelete) {
-                  setIsDeleting(true);
-                  try {
-                    await onRemoveWorktree(worktreeToDelete, { deleteBranch, force: forceDelete });
-                    setWorktreeToDelete(null);
-                    setDeleteBranch(false);
-                    setForceDelete(false);
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    const hasUncommitted = message.includes('modified or untracked');
-                    toastManager.add({
-                      type: 'error',
-                      title: t('Delete failed'),
-                      description: hasUncommitted
-                        ? t(
-                            'This directory contains uncommitted changes. Please check "Force delete".'
-                          )
-                        : message,
-                    });
-                  } finally {
-                    setIsDeleting(false);
-                  }
-                }
-              }}
-            >
-              {isDeleting ? t('Deleting...') : t('Delete')}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
+        onDelete={onRemoveWorktree}
+      />
     </aside>
-  );
-}
-
-interface WorktreeItemProps {
-  worktree: GitWorktree;
-  isActive: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-  onMerge?: () => void;
-  // Drag reorder props
-  draggable?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: () => void;
-  onDrop?: (e: React.DragEvent) => void;
-  showDropIndicator?: boolean;
-  dropDirection?: 'top' | 'bottom' | null;
-}
-
-function WorktreeItem({
-  worktree,
-  isActive,
-  onClick,
-  onDelete,
-  onMerge,
-  draggable,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  showDropIndicator,
-  dropDirection,
-}: WorktreeItemProps) {
-  const { t } = useI18n();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isMain =
-    worktree.isMainWorktree || worktree.branch === 'main' || worktree.branch === 'master';
-  const branchDisplay = worktree.branch || t('Detached');
-  const isPrunable = worktree.prunable;
-
-  // Subscribe to activity store
-  const activities = useWorktreeActivityStore((s) => s.activities);
-  const diffStatsMap = useWorktreeActivityStore((s) => s.diffStats);
-  const activity = activities[worktree.path] || { agentCount: 0, terminalCount: 0 };
-  const diffStats = diffStatsMap[worktree.path] || { insertions: 0, deletions: 0 };
-  const closeAgentSessions = useWorktreeActivityStore((s) => s.closeAgentSessions);
-  const closeTerminalSessions = useWorktreeActivityStore((s) => s.closeTerminalSessions);
-  const hasActivity = activity.agentCount > 0 || activity.terminalCount > 0;
-  const hasDiffStats = diffStats.insertions > 0 || diffStats.deletions > 0;
-
-  const handleCopyPath = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(worktree.path);
-      toastManager.add({
-        title: t('Copied'),
-        description: t('Path copied to clipboard'),
-        type: 'success',
-        timeout: 2000,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
-        type: 'error',
-        timeout: 3000,
-      });
-    }
-  }, [t, worktree.path]);
-
-  const handleCopyBranch = useCallback(async () => {
-    if (!worktree.branch) return;
-    try {
-      await navigator.clipboard.writeText(worktree.branch);
-      toastManager.add({
-        title: t('Copied'),
-        description: t('Branch name copied to clipboard'),
-        type: 'success',
-        timeout: 2000,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toastManager.add({
-        title: t('Copy failed'),
-        description: message || t('Failed to copy content'),
-        type: 'error',
-        timeout: 3000,
-      });
-    }
-  }, [t, worktree.branch]);
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const x = e.clientX;
-    const y = e.clientY;
-    // Will adjust position after menu renders
-    setMenuPosition({ x, y });
-    setMenuOpen(true);
-  };
-
-  // Adjust menu position if it overflows viewport
-  useEffect(() => {
-    if (menuOpen && menuRef.current) {
-      const menu = menuRef.current;
-      const rect = menu.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
-
-      let { x, y } = menuPosition;
-
-      // Adjust if menu overflows bottom
-      if (y + rect.height > viewportHeight - 8) {
-        y = Math.max(8, viewportHeight - rect.height - 8);
-      }
-
-      // Adjust if menu overflows right
-      if (x + rect.width > viewportWidth - 8) {
-        x = Math.max(8, viewportWidth - rect.width - 8);
-      }
-
-      if (x !== menuPosition.x || y !== menuPosition.y) {
-        setMenuPosition({ x, y });
-      }
-    }
-  }, [menuOpen, menuPosition]);
-
-  return (
-    <>
-      <div className="relative">
-        {/* Drop indicator - top */}
-        {showDropIndicator && dropDirection === 'top' && (
-          <div className="absolute -top-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
-        )}
-        <NamePathTooltip name={branchDisplay} path={worktree.path}>
-          <button
-            type="button"
-            draggable={draggable}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onClick={onClick}
-            onContextMenu={handleContextMenu}
-            className={cn(
-              'flex w-full flex-col items-start gap-1 rounded-md px-2 py-2 text-left transition-colors',
-              isPrunable && 'opacity-50',
-              isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
-            )}
-          >
-            <div className="flex w-full items-center gap-2">
-              <GitBranch
-                className={cn(
-                  'h-4 w-4 shrink-0',
-                  isPrunable
-                    ? 'text-destructive'
-                    : isActive
-                      ? 'text-accent-foreground'
-                      : 'text-muted-foreground'
-                )}
-              />
-              <span
-                className={cn(
-                  'min-w-0 flex-1 truncate text-sm font-medium',
-                  isPrunable && 'line-through'
-                )}
-              >
-                {branchDisplay}
-              </span>
-              {isPrunable ? (
-                <span className="shrink-0 rounded bg-destructive/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-destructive">
-                  {t('Deleted')}
-                </span>
-              ) : isMain ? (
-                <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-600 dark:text-emerald-400">
-                  {t('Main')}
-                </span>
-              ) : null}
-              {hasActivity && (
-                <span
-                  className="ml-auto h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
-                  title={t('Active sessions')}
-                />
-              )}
-            </div>
-
-            {hasActivity && (
-              <div
-                className={cn(
-                  'flex items-center gap-3 pl-6 text-xs',
-                  isActive ? 'text-accent-foreground/70' : 'text-muted-foreground'
-                )}
-              >
-                {activity.agentCount > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" />
-                    {activity.agentCount}
-                  </span>
-                )}
-                {activity.terminalCount > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Terminal className="h-3 w-3" />
-                    {activity.terminalCount}
-                  </span>
-                )}
-                {hasDiffStats && (
-                  <span className="flex items-center gap-1.5">
-                    {diffStats.insertions > 0 && (
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        +{diffStats.insertions}
-                      </span>
-                    )}
-                    {diffStats.deletions > 0 && (
-                      <span className="text-red-600 dark:text-red-400">-{diffStats.deletions}</span>
-                    )}
-                  </span>
-                )}
-              </div>
-            )}
-          </button>
-        </NamePathTooltip>
-        {/* Drop indicator - bottom */}
-        {showDropIndicator && dropDirection === 'bottom' && (
-          <div className="absolute -bottom-0.5 left-2 right-2 h-0.5 bg-primary rounded-full" />
-        )}
-      </div>
-
-      {/* Context Menu */}
-      {menuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setMenuOpen(false)}
-            onKeyDown={(e) => e.key === 'Escape' && setMenuOpen(false)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenuOpen(false);
-            }}
-            role="presentation"
-          />
-          <div
-            ref={menuRef}
-            className="fixed z-50 min-w-40 rounded-lg border bg-popover p-1 shadow-lg"
-            style={{ left: menuPosition.x, top: menuPosition.y }}
-          >
-            {/* Close All Sessions */}
-            {activity.agentCount > 0 && activity.terminalCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeAgentSessions(worktree.path);
-                  closeTerminalSessions(worktree.path);
-                }}
-              >
-                <X className="h-4 w-4" />
-                {t('Close All Sessions')}
-              </button>
-            )}
-
-            {/* Close Agent Sessions */}
-            {activity.agentCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeAgentSessions(worktree.path);
-                }}
-              >
-                <X className="h-4 w-4" />
-                <Sparkles className="h-4 w-4" />
-                {t('Close Agent Sessions')}
-              </button>
-            )}
-
-            {/* Close Terminal Sessions */}
-            {activity.terminalCount > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-                onClick={() => {
-                  setMenuOpen(false);
-                  closeTerminalSessions(worktree.path);
-                }}
-              >
-                <X className="h-4 w-4" />
-                <Terminal className="h-4 w-4" />
-                {t('Close Terminal Sessions')}
-              </button>
-            )}
-
-            {/* Separator if there are activity options */}
-            {hasActivity && <div className="my-1 h-px bg-border" />}
-
-            {/* Open Folder */}
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-              onClick={() => {
-                setMenuOpen(false);
-                window.electronAPI.shell.openPath(worktree.path);
-              }}
-            >
-              <FolderOpen className="h-4 w-4" />
-              {t('Open folder')}
-            </button>
-
-            {/* Copy Path */}
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-              onClick={() => {
-                setMenuOpen(false);
-                handleCopyPath();
-              }}
-            >
-              <Copy className="h-4 w-4" />
-              {t('Copy Path')}
-            </button>
-
-            {/* Copy Branch Name */}
-            {worktree.branch && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-                onClick={() => {
-                  setMenuOpen(false);
-                  handleCopyBranch();
-                }}
-              >
-                <GitBranch className="h-4 w-4" />
-                {t('Copy Branch Name')}
-              </button>
-            )}
-
-            {/* Merge to Branch */}
-            {onMerge && !isMain && !isPrunable && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onMerge();
-                }}
-              >
-                <GitMerge className="h-4 w-4" />
-                {t('Merge to Branch...')}
-              </button>
-            )}
-
-            {/* Separator before delete */}
-            <div className="my-1 h-px bg-border" />
-
-            {/* Delete Worktree */}
-            <button
-              type="button"
-              className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent/50',
-                isMain && 'pointer-events-none opacity-50'
-              )}
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete();
-              }}
-              disabled={isMain}
-            >
-              <Trash2 className="h-4 w-4" />
-              {isPrunable ? t('Clean up records') : t('Delete')}
-            </button>
-          </div>
-        </>
-      )}
-    </>
   );
 }
 

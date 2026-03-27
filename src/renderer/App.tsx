@@ -38,7 +38,6 @@ import { AddRepositoryDialog } from './components/git';
 import { CloneProgressFloat } from './components/git/CloneProgressFloat';
 import { ActionPanel } from './components/layout/ActionPanel';
 import { MainContent } from './components/layout/MainContent';
-import { RepositorySidebar } from './components/layout/RepositorySidebar';
 import { TreeSidebar } from './components/layout/TreeSidebar';
 import { WorktreePanel } from './components/layout/WorktreePanel';
 import { SettingsDialog } from './components/settings/SettingsDialog';
@@ -1046,7 +1045,7 @@ export default function App() {
                 transition={panelTransition}
                 className="relative h-full shrink-0 overflow-hidden"
               >
-                <RepositorySidebar
+                <TreeSidebar
                   repositories={repositories}
                   selectedRepo={selectedRepo}
                   onSelectRepo={handleSelectRepo}
@@ -1068,6 +1067,7 @@ export default function App() {
                   onReorderRepo={handleReorderRepo}
                   onSwitchTab={setActiveTab}
                   onSwitchWorktreeByPath={handleSwitchWorktreePath}
+                  showInlineWorktrees={false}
                 />
                 {/* Resize handle */}
                 <div
