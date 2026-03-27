@@ -7,7 +7,6 @@ import {
   ChevronsUpDown,
   Copy,
   Crosshair,
-  Folder,
   FolderGit2,
   FolderMinus,
   FolderOpen,
@@ -21,6 +20,7 @@ import {
   Settings,
   Settings2,
   Sparkles,
+  SquareKanban,
   Terminal,
   Trash2,
   X,
@@ -494,7 +494,6 @@ export function TreeSidebar({
       const worktreePaths = repoWorktrees.map((worktree) => worktree.path);
       const repoError = errorsMap[repo.path];
       const repoLoading = loadingMap[repo.path] ?? (isExpanded && !worktreesMap[repo.path]);
-      const RepoFolderIcon = isExpanded ? FolderOpen : Folder;
 
       return (
         <div>
@@ -541,10 +540,10 @@ export function TreeSidebar({
                   />
                 )}
               </span>
-              <RepoFolderIcon
+              <SquareKanban
                 className={cn(
-                  'h-4 w-4 shrink-0',
-                  isSelected ? 'text-accent-foreground' : 'text-amber-500'
+                  'h-3.5 w-3.5 shrink-0',
+                  isSelected ? 'text-accent-foreground' : 'text-sky-500'
                 )}
               />
               <span className="min-w-0 flex-1 truncate">{repo.name}</span>
