@@ -1,6 +1,6 @@
 {
   "name": "enso-ai",
-  "version": "0.2.16",
+  "version": "0.2.169",
   "description": "EnsoAI - Git Worktree Manager with AI Agent",
   "main": "./out/main/index.js",
   "author": {
@@ -17,6 +17,7 @@
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "pnpm build && electron-builder --mac",
+    "build:mac:dev": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.identity=null -c.mac.notarize=false -c.compression=normal -c.mac.target=dmg -c.dmg.writeUpdateInfo=false",
     "build:mac:unsigned": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
     "build:win": "pnpm build && electron-builder --win",
     "build:linux": "pnpm build && electron-builder --linux",

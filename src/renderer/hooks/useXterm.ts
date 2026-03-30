@@ -160,7 +160,7 @@ export function useXterm({
   // rAF write buffer for smooth rendering
   const writeBufferRef = useRef('');
   const isFlushPendingRef = useRef(false);
-  const lastStreamRefreshAtRef = useRef(0);
+  const webglRecoveryCountRef = useRef(0);
 
   const write = useCallback((data: string) => {
     if (ptyIdRef.current) {
@@ -215,37 +215,28 @@ export function useXterm({
   }, []);
 
   const clearTextureAtlas = useCallback(() => {
-    const addon = rendererAddonRef.current;
-    if (addon && 'clearTextureAtlas' in addon) {
-      try {
-        (addon as WebglAddon).clearTextureAtlas();
-      } catch {
-        // Ignore
-      }
+    try {
+      terminalRef.current?.clearTextureAtlas();
+    } catch {
+      // Ignore
     }
   }, []);
 
+  // Trigger the same deep rebuild that a manual theme switch does:
+  // terminal.options.theme = ... calls setColors() internally, which clears GPU texture data,
+  // rebuilds the glyph cache from scratch, and forces a full re-render.
+  // This is far more thorough than clearTextureAtlas() which only invalidates cache entries.
   const refreshRenderer = useCallback(() => {
-    if (!terminalRef.current) return;
-    clearTextureAtlas();
-    terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    const currentTheme = terminal.options.theme;
+    if (currentTheme) {
+      terminal.options.theme = { ...currentTheme };
+    } else {
+      clearTextureAtlas();
+      terminal.refresh(0, terminal.rows - 1);
+    }
   }, [clearTextureAtlas]);
-
-  const refreshDuringStreaming = useCallback(
-    (data: string) => {
-      if (terminalRendererRef.current !== 'webgl' || document.hidden) return;
-      if (data.length < 48 || !hasVisibleContent(data)) return;
-
-      const now = Date.now();
-      if (now - lastStreamRefreshAtRef.current < 1200) return;
-      lastStreamRefreshAtRef.current = now;
-
-      requestAnimationFrame(() => {
-        refreshRenderer();
-      });
-    },
-    [refreshRenderer]
-  );
 
   const loadRenderer = useCallback((terminal: Terminal, renderer: typeof terminalRenderer) => {
     // Dispose current renderer addon
@@ -257,15 +248,32 @@ export function useXterm({
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
-          // Guard against disposed terminal
           if (terminalRef.current && rendererAddonRef.current === webglAddon) {
-            console.warn('[xterm] WebGL context lost, falling back to DOM renderer');
             webglAddon.dispose();
             rendererAddonRef.current = null;
+            // Attempt recovery up to 2 times before falling back to DOM
+            if (webglRecoveryCountRef.current < 2) {
+              webglRecoveryCountRef.current++;
+              console.warn(
+                `[xterm] WebGL context lost, recovery attempt ${webglRecoveryCountRef.current}/2`
+              );
+              setTimeout(() => {
+                if (
+                  terminalRef.current &&
+                  terminalRendererRef.current === 'webgl' &&
+                  !rendererAddonRef.current
+                ) {
+                  loadRenderer(terminalRef.current, 'webgl');
+                }
+              }, 1000);
+            } else {
+              console.warn('[xterm] WebGL context lost, using DOM renderer');
+            }
           }
         });
         terminal.loadAddon(webglAddon);
         rendererAddonRef.current = webglAddon;
+        webglRecoveryCountRef.current = 0;
       } catch (error) {
         console.warn('[xterm] WebGL failed, falling back to DOM renderer:', error);
         rendererAddonRef.current = null;
@@ -548,7 +556,6 @@ export function useXterm({
                 }
                 // Call onData after write to avoid React re-render storm
                 onDataRef.current?.(bufferedData);
-                refreshDuringStreaming(bufferedData);
                 writeBufferRef.current = '';
               }
               isFlushPendingRef.current = false;
@@ -591,7 +598,7 @@ export function useXterm({
       terminal.writeln(`\x1b[31mFailed to start terminal.\x1b[0m`);
       terminal.writeln(`\x1b[33mError: ${error}\x1b[0m`);
     }
-  }, [cwd, command, shellConfig, commandKey, terminalRenderer, refreshDuringStreaming]);
+  }, [cwd, command, shellConfig, commandKey, terminalRenderer]);
 
   useEffect(() => {
     const shouldActivate = isActive || initialCommandRef.current;
@@ -652,8 +659,7 @@ export function useXterm({
           cols: terminalRef.current.cols,
           rows: terminalRef.current.rows,
         });
-        clearTextureAtlas();
-        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+        refreshRenderer();
       }
     };
 
@@ -686,7 +692,7 @@ export function useXterm({
       observer.disconnect();
       intersectionObserver.disconnect();
     };
-  }, [clearTextureAtlas]);
+  }, [refreshRenderer]);
 
   // Re-activate with an explicit refresh cycle.
   // Hidden -> visible tab switches can leave the WebGL atlas in a stale state even if size did not change.
@@ -738,35 +744,23 @@ export function useXterm({
     return () => window.removeEventListener('focus', handleFocus);
   }, [isActive, fit, refreshRenderer]);
 
-  // Silent Reset: Proactively clear texture atlas every 30 mins to prevent long-term fragmentation
+  // Proactively clear texture atlas every 5 minutes to prevent long-term fragmentation
   useEffect(() => {
     if (!isActive) return;
 
     const preventGlitchInterval = setInterval(
       () => {
-        const addon = rendererAddonRef.current;
-        if (
-          terminalRenderer === 'webgl' &&
-          terminalRef.current &&
-          addon &&
-          'clearTextureAtlas' in addon &&
-          !document.hidden
-        ) {
+        if (terminalRenderer === 'webgl' && terminalRef.current && !document.hidden) {
           requestAnimationFrame(() => {
-            try {
-              clearTextureAtlas();
-              terminalRef.current?.refresh(0, terminalRef.current.rows - 1);
-            } catch {
-              // Ignore errors if addon is disposed or method missing
-            }
+            refreshRenderer();
           });
         }
       },
-      1000 * 60 * 30
-    ); // 30 minutes
+      1000 * 60 * 5
+    );
 
     return () => clearInterval(preventGlitchInterval);
-  }, [isActive, terminalRenderer, clearTextureAtlas]);
+  }, [isActive, terminalRenderer, refreshRenderer]);
 
   return {
     containerRef,
