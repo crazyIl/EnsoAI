@@ -32,6 +32,7 @@ import {
 import { toastManager } from '@/components/ui/toast';
 import { useGitPull, useGitPush, useGitStatus } from '@/hooks/useGit';
 import { useCommitDiff, useCommitFiles, useGitHistoryInfinite } from '@/hooks/useGitHistory';
+import { useGitRepositoryWatcher } from '@/hooks/useGitRepositoryWatcher';
 import { useFileChanges, useGitFetch } from '@/hooks/useSourceControl';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -82,12 +83,14 @@ export function SourceControlPanel({
   const changes = fileChangesResult?.changes;
   const skippedDirs = fileChangesResult?.skippedDirs;
 
+  useGitRepositoryWatcher(rootPath ?? null);
+
   // Git sync status
   const { data: gitStatus, refetch: refetchStatus } = useGitStatus(rootPath ?? null, isActive);
   const pushMutation = useGitPush();
   const pullMutation = useGitPull();
   const fetchMutation = useGitFetch();
-  const isSyncing = pushMutation.isPending || pullMutation.isPending;
+  const isSyncing = fetchMutation.isPending || pushMutation.isPending || pullMutation.isPending;
 
   const {
     data: commitsData,
@@ -112,16 +115,18 @@ export function SourceControlPanel({
     if (!rootPath || isSyncing) return;
 
     try {
+      await fetchMutation.mutateAsync({ workdir: rootPath });
+      const latestStatus = (await refetchStatus()).data ?? gitStatus;
       let pulled = false;
       let pushed = false;
 
       // Pull first if behind
-      if (gitStatus?.behind && gitStatus.behind > 0) {
+      if (latestStatus?.behind && latestStatus.behind > 0) {
         await pullMutation.mutateAsync({ workdir: rootPath });
         pulled = true;
       }
       // Then push if ahead
-      if (gitStatus?.ahead && gitStatus.ahead > 0) {
+      if (latestStatus?.ahead && latestStatus.ahead > 0) {
         await pushMutation.mutateAsync({ workdir: rootPath });
         pushed = true;
       }
@@ -130,12 +135,18 @@ export function SourceControlPanel({
       refetchCommits();
       refetchStatus();
 
-      // Show success toast
       if (pulled || pushed) {
         const actions = [pulled && t('Pulled'), pushed && t('Pushed')].filter(Boolean).join(' & ');
         toastManager.add({
           title: t('Sync completed'),
           description: actions,
+          type: 'success',
+          timeout: 3000,
+        });
+      } else {
+        toastManager.add({
+          title: t('Sync completed'),
+          description: t('Up to date'),
           type: 'success',
           timeout: 3000,
         });
@@ -149,6 +160,7 @@ export function SourceControlPanel({
     gitStatus,
     pullMutation,
     pushMutation,
+    fetchMutation,
     refetch,
     refetchCommits,
     refetchStatus,
@@ -160,12 +172,21 @@ export function SourceControlPanel({
     if (!rootPath || !gitStatus?.current || pushMutation.isPending) return;
 
     try {
-      await pushMutation.mutateAsync({
-        workdir: rootPath,
-        remote: 'origin',
-        branch: gitStatus.current,
-        setUpstream: true,
-      });
+      const latestStatus = (await refetchStatus()).data ?? gitStatus;
+      if (!latestStatus?.current) return;
+
+      if (latestStatus.tracking) {
+        await handleSync();
+        return;
+      } else {
+        await pushMutation.mutateAsync({
+          workdir: rootPath,
+          remote: 'origin',
+          branch: latestStatus.current,
+          setUpstream: true,
+        });
+      }
+
       // Refetch all data after publish
       refetch();
       refetchCommits();
@@ -174,7 +195,7 @@ export function SourceControlPanel({
       toastManager.add({
         title: t('Branch published'),
         description: t('Branch {{branch}} is now tracking origin/{{branch}}', {
-          branch: gitStatus.current,
+          branch: latestStatus.current,
         }),
         type: 'success',
         timeout: 3000,
@@ -182,7 +203,7 @@ export function SourceControlPanel({
     } catch {
       // Errors are handled by mutation's onError
     }
-  }, [rootPath, gitStatus?.current, pushMutation, refetch, refetchCommits, refetchStatus, t]);
+  }, [rootPath, gitStatus, pushMutation, refetch, refetchCommits, refetchStatus, t, handleSync]);
 
   // Flatten infinite query data
   const commits = commitsData?.pages.flat() ?? [];

@@ -76,6 +76,7 @@ const electronAPI = {
     init: (workdir: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.GIT_INIT, workdir),
     getFileChanges: (workdir: string): Promise<FileChangesResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_CHANGES, workdir),
+    getDir: (workdir: string): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.GIT_DIR, workdir),
     getFileDiff: (workdir: string, filePath: string, staged: boolean): Promise<FileDiff> =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_FILE_DIFF, workdir, filePath, staged),
     stage: (workdir: string, paths: string[]): Promise<void> =>

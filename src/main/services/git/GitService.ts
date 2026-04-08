@@ -16,6 +16,7 @@ import type {
   PullRequest,
 } from '@shared/types';
 import simpleGit, { type SimpleGit, type StatusResult } from 'simple-git';
+import { getResolvedEnvForCommand } from '../../utils/shell';
 import { getProxyEnvVars } from '../proxy/ProxyConfig';
 import { getEnhancedPath } from '../terminal/PtyManager';
 import { decodeBuffer, gitShow } from './encoding';
@@ -33,6 +34,10 @@ export class GitService {
       PATH: getEnhancedPath(),
     });
     this.workdir = workdir;
+  }
+
+  private async refreshAuthEnv(): Promise<void> {
+    this.git.env(await getResolvedEnvForCommand(getProxyEnvVars(), { forceShellRefresh: true }));
   }
 
   async getStatus(): Promise<GitStatus> {
@@ -152,6 +157,7 @@ export class GitService {
   }
 
   async push(remote = 'origin', branch?: string, setUpstream = false): Promise<void> {
+    await this.refreshAuthEnv();
     if (setUpstream && branch) {
       await this.git.push(['-u', remote, branch]);
     } else {
@@ -160,10 +166,12 @@ export class GitService {
   }
 
   async pull(remote = 'origin', branch?: string): Promise<void> {
+    await this.refreshAuthEnv();
     await this.git.pull(remote, branch);
   }
 
   async fetch(remote = 'origin'): Promise<void> {
+    await this.refreshAuthEnv();
     await this.git.fetch(remote);
   }
 
@@ -267,6 +275,10 @@ export class GitService {
 
     const skippedDirs = skippedDirsSet.size > 0 ? Array.from(skippedDirsSet) : undefined;
     return { changes, skippedDirs };
+  }
+
+  async getGitDir(): Promise<string> {
+    return (await this.git.raw(['rev-parse', '--absolute-git-dir'])).trim();
   }
 
   async getFileDiff(filePath: string, staged: boolean): Promise<FileDiff> {
@@ -476,11 +488,12 @@ export class GitService {
 
   // GitHub CLI methods
   async getGhCliStatus(): Promise<GhCliStatus> {
+    const env = await getResolvedEnvForCommand(getProxyEnvVars(), { forceShellRefresh: true });
     try {
       // Check if gh is installed
       await execAsync('gh --version', {
         cwd: this.workdir,
-        env: { ...process.env, PATH: getEnhancedPath() },
+        env,
       });
     } catch {
       return { installed: false, authenticated: false, error: 'gh CLI not installed' };
@@ -490,7 +503,7 @@ export class GitService {
       // Check if gh is authenticated
       await execAsync('gh auth status', {
         cwd: this.workdir,
-        env: { ...process.env, ...getProxyEnvVars(), PATH: getEnhancedPath() },
+        env,
       });
       return { installed: true, authenticated: true };
     } catch {
@@ -504,7 +517,7 @@ export class GitService {
         'gh pr list --state open --json number,title,headRefName,state,author,updatedAt,isDraft --limit 50',
         {
           cwd: this.workdir,
-          env: { ...process.env, ...getProxyEnvVars(), PATH: getEnhancedPath() },
+          env: await getResolvedEnvForCommand(getProxyEnvVars(), { forceShellRefresh: true }),
         }
       );
 
@@ -536,6 +549,7 @@ export class GitService {
 
   async fetchPullRequest(prNumber: number, localBranch: string): Promise<void> {
     try {
+      await this.refreshAuthEnv();
       // Fetch PR head to local branch without checking out
       // This creates the branch locally pointing to the PR's head commit
       await this.git.fetch(['origin', `pull/${prNumber}/head:${localBranch}`]);
@@ -608,9 +622,7 @@ export class GitService {
         }
       },
     }).env({
-      ...process.env,
-      ...getProxyEnvVars(),
-      PATH: getEnhancedPath(),
+      ...(await getResolvedEnvForCommand(getProxyEnvVars(), { forceShellRefresh: true })),
     });
 
     // Execute clone with progress flag

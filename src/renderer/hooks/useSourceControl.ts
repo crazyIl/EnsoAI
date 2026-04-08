@@ -13,7 +13,8 @@ export function useFileChanges(workdir: string | null, isActive = true) {
     },
     enabled: !!workdir,
     refetchInterval: isActive ? 5000 : false, // Only poll when tab is active
-    refetchIntervalInBackground: false, // Only poll when window is focused
+    refetchIntervalInBackground: isActive, // Keep syncing while switching to external editors
+    refetchOnWindowFocus: isActive,
     staleTime: 2000, // Avoid redundant requests within 2s
   });
 }
@@ -145,6 +146,14 @@ export function useGitFetch() {
     },
     onSuccess: async (_, { workdir }) => {
       await queryClient.invalidateQueries({ queryKey: ['git', 'status', workdir] });
+    },
+    onError: (error) => {
+      toastManager.add({
+        title: 'Fetch failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        type: 'error',
+        timeout: 5000,
+      });
     },
   });
 }

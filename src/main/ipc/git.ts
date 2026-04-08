@@ -179,6 +179,11 @@ export function registerGitHandlers(): void {
     return git.getFileChanges();
   });
 
+  ipcMain.handle(IPC_CHANNELS.GIT_DIR, async (_, workdir: string) => {
+    const git = getGitService(workdir);
+    return git.getGitDir();
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.GIT_FILE_DIFF,
     async (_, workdir: string, filePath: string, staged: boolean) => {

@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   GIT_DIFF: 'git:diff',
   GIT_INIT: 'git:init',
   GIT_FILE_CHANGES: 'git:file-changes',
+  GIT_DIR: 'git:dir',
   GIT_FILE_DIFF: 'git:file-diff',
   GIT_STAGE: 'git:stage',
   GIT_UNSTAGE: 'git:unstage',

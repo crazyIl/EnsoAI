@@ -1,5 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toastManager } from '@/components/ui/toast';
 import { useRepositoryStore } from '@/stores/repository';
+
+function getGitErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'Unknown error';
+  }
+
+  const message = error.message.trim();
+
+  if (
+    message.includes('index.lock') ||
+    message.includes('HEAD.lock') ||
+    message.includes('cannot lock ref')
+  ) {
+    return 'Git repository is busy. Finish the Git operation in VS Code and try again.';
+  }
+
+  return message || 'Unknown error';
+}
 
 export function useGitStatus(workdir: string | null, isActive = true) {
   const setStatus = useRepositoryStore((s) => s.setStatus);
@@ -14,7 +33,8 @@ export function useGitStatus(workdir: string | null, isActive = true) {
     },
     enabled: !!workdir,
     refetchInterval: isActive ? 5000 : false,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: isActive,
+    refetchOnWindowFocus: isActive,
   });
 }
 
@@ -125,6 +145,14 @@ export function useGitPush() {
     onSuccess: (_, { workdir }) => {
       queryClient.invalidateQueries({ queryKey: ['git', 'status', workdir] });
     },
+    onError: (error) => {
+      toastManager.add({
+        title: 'Push failed',
+        description: getGitErrorMessage(error),
+        type: 'error',
+        timeout: 5000,
+      });
+    },
   });
 }
 
@@ -147,6 +175,14 @@ export function useGitPull() {
       queryClient.invalidateQueries({ queryKey: ['git', 'status', workdir] });
       queryClient.invalidateQueries({ queryKey: ['git', 'log', workdir] });
       queryClient.invalidateQueries({ queryKey: ['git', 'log-infinite', workdir] });
+    },
+    onError: (error) => {
+      toastManager.add({
+        title: 'Pull failed',
+        description: getGitErrorMessage(error),
+        type: 'error',
+        timeout: 5000,
+      });
     },
   });
 }
