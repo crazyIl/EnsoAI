@@ -16,6 +16,7 @@ const execFileAsync = promisify(execFile);
 
 const SHELL_ENV_MARKER = '__ENSO_SHELL_ENV__';
 const SHELL_ENV_KEYS = [
+  'PATH',
   'SSH_AUTH_SOCK',
   'SSH_AGENT_PID',
   'SSH_ASKPASS',

@@ -58,6 +58,7 @@ import { toastManager } from '@/components/ui/toast';
 import { CreateWorktreeDialog } from '@/components/worktree/CreateWorktreeDialog';
 import { WorktreeDeleteDialog } from '@/components/worktree/WorktreeDeleteDialog';
 import { WorktreeItemView } from '@/components/worktree/WorktreeItemView';
+import { useContextMenuPosition } from '@/hooks/useContextMenuPosition';
 import { useWorktreeListMultiple } from '@/hooks/useWorktree';
 import { useWorktreeDiffStats } from '@/hooks/useWorktreeDiffStats';
 import { useI18n } from '@/i18n';
@@ -236,6 +237,10 @@ export function TreeSidebar({
   const [repoMenuOpen, setRepoMenuOpen] = useState(false);
   const [repoMenuPosition, setRepoMenuPosition] = useState({ x: 0, y: 0 });
   const [repoMenuTarget, setRepoMenuTarget] = useState<Repository | null>(null);
+  const { menuRef: repoMenuRef, position: adjustedRepoMenuPos } = useContextMenuPosition(
+    repoMenuPosition.x,
+    repoMenuPosition.y
+  );
   const [repoToRemove, setRepoToRemove] = useState<Repository | null>(null);
 
   // Repository settings dialog
@@ -907,8 +912,9 @@ export function TreeSidebar({
             role="presentation"
           />
           <div
+            ref={repoMenuRef}
             className="fixed z-50 min-w-32 rounded-lg border bg-popover p-1 shadow-lg"
-            style={{ left: repoMenuPosition.x, top: repoMenuPosition.y }}
+            style={{ left: adjustedRepoMenuPos.x, top: adjustedRepoMenuPos.y }}
           >
             {/* New Worktree button (tree mode only) */}
             {showInlineWorktrees && onCreateWorktree && (

@@ -1,5 +1,6 @@
 import { ChevronRight, Folder, FolderSymlink } from 'lucide-react';
 import { buildGroupTree, type GroupTreeNode, type RepositoryGroup } from '@/App/constants';
+import { useSubmenuPosition } from '@/hooks/useContextMenuPosition';
 import { useI18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 
@@ -17,13 +18,14 @@ export function MoveToGroupSubmenu({
   onClose,
 }: MoveToGroupSubmenuProps) {
   const { t } = useI18n();
+  const { submenuRef, triggerRef } = useSubmenuPosition();
 
   if (groups.length === 0) return null;
 
   const tree = buildGroupTree(groups);
 
   return (
-    <div className="relative group/submenu">
+    <div ref={triggerRef} className="relative group/submenu">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
@@ -32,7 +34,10 @@ export function MoveToGroupSubmenu({
         {t('Move to Group')}
         <ChevronRight className="ml-auto h-3.5 w-3.5" />
       </button>
-      <div className="invisible absolute left-full top-0 z-50 min-w-36 rounded-lg border bg-popover p-1 opacity-0 shadow-lg transition-all group-hover/submenu:visible group-hover/submenu:opacity-100">
+      <div
+        ref={submenuRef}
+        className="invisible absolute left-full top-0 z-50 min-w-36 rounded-lg border bg-popover p-1 opacity-0 shadow-lg transition-all group-hover/submenu:visible group-hover/submenu:opacity-100"
+      >
         <button
           type="button"
           className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"

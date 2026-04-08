@@ -149,6 +149,7 @@ export class GitService {
   }
 
   async commit(message: string, files?: string[]): Promise<string> {
+    await this.refreshAuthEnv();
     if (files && files.length > 0) {
       await this.git.add(files);
     }
